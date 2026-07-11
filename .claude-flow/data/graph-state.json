@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "updatedAt": 1783772143897,
+  "nodeCount": 11,
+  "nodes": {
+    "mem-lfc-facilities-dashboard----": {
+      "id": "mem-lfc-facilities-dashboard----",
+      "category": "lfc-facilities-dashboard",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1783769793704
+    },
+    "mem-MEMORY----danny---aquaassure-founder-": {
+      "id": "mem-MEMORY----danny---aquaassure-founder-",
+      "category": "core",
+      "confidence": 0.55,
+      "accessCount": 1,
+      "createdAt": 1783769793705
+    },
+    "mem-feedback_branding----": {
+      "id": "mem-feedback_branding----",
+      "category": "feedback_branding",
+      "confidence": 0.55,
+      "accessCount": 1,
+      "createdAt": 1783769793705
+    },
+    "mem-project_aquaassure_status----": {
+      "id": "mem-project_aquaassure_status----",
+      "category": "project_aquaassure_status",
+      "confidence": 0.55,
+      "accessCount": 1,
+      "createdAt": 1783769793705
+    },
+    "mem-reference_deployment----": {
+      "id": "mem-reference_deployment----",
+      "category": "reference_deployment",
+      "confidence": 0.55,
+      "accessCount": 1,
+      "createdAt": 1783769793705
+    },
+    "mem-user_danny----": {
+      "id": "mem-user_danny----",
+      "category": "user_danny",
+      "confidence": 0.55,
+      "accessCount": 1,
+      "createdAt": 1783769793706
+    },
+    "mem-MEMORY-memory-index": {
+      "id": "mem-MEMORY-memory-index",
+      "category": "core",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1783769793709
+    },
+    "mem-lws-contact-form-resend----": {
+      "id": "mem-lws-contact-form-resend----",
+      "category": "lws-contact-form-resend",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1783769793709
+    },
+    "mem-lws-offer-repositioning----": {
+      "id": "mem-lws-offer-repositioning----",
+      "category": "lws-offer-repositioning",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1783769793710
+    },
+    "mem-vercel-framework-null-404----": {
+      "id": "mem-vercel-framework-null-404----",
+      "category": "vercel-framework-null-404",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1783769793713
+    },
+    "insight-1783772143896-u7xc": {
+      "id": "insight-1783772143896-u7xc",
+      "category": "insights",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1783772143896
+    }
+  },
+  "edges": [],
+  "pageRanks": {
+    "mem-lfc-facilities-dashboard----": 0.09090909090909093,
+    "mem-MEMORY----danny---aquaassure-founder-": 0.09090909090909093,
+    "mem-feedback_branding----": 0.09090909090909093,
+    "mem-project_aquaassure_status----": 0.09090909090909093,
+    "mem-reference_deployment----": 0.09090909090909093,
+    "mem-user_danny----": 0.09090909090909093,
+    "mem-MEMORY-memory-index": 0.09090909090909093,
+    "mem-lws-contact-form-resend----": 0.09090909090909093,
+    "mem-lws-offer-repositioning----": 0.09090909090909093,
+    "mem-vercel-framework-null-404----": 0.09090909090909093,
+    "insight-1783772143896-u7xc": 0.09090909090909093
+  }
+}
