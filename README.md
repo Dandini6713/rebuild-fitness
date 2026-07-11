@@ -55,7 +55,49 @@ Then press `i` in the Expo terminal to open the iOS Simulator, scan the displaye
 npm run ios
 ```
 
-The web and Android development targets can be started with `npm run web` and `npm run android` respectively. No environment variables are required for this initial application shell; `.env.example` records that intentionally.
+The web and Android development targets can be started with `npm run web` and `npm run android` respectively.
+
+### Supabase client setup
+
+The app starts safely without Supabase configuration and shows a setup-required diagnostic. To connect it to a hosted project:
+
+1. Create a private project in the [Supabase dashboard](https://supabase.com/dashboard).
+2. Open the project's **Connect** panel and copy its Project URL and publishable key.
+3. Copy `.env.example` to `.env`.
+4. Set the two public variables:
+
+   ```dotenv
+   EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_public_key
+   ```
+
+5. Restart Expo with `npm start -- --clear` so the variables are embedded in the client bundle.
+6. Open **Settings → Developer diagnostics** and run **Check connection**.
+
+Only use a publishable client key. Never put a `service_role` key, an `sb_secret_…` key, a database password or another private credential in an `EXPO_PUBLIC_` variable. The mobile client still depends on row-level security; a publishable key does not bypass database policies.
+
+### Local Supabase development
+
+Local Supabase requires Docker Desktop or another Docker-compatible runtime. The repository includes the Supabase CLI and a private-beta configuration with public sign-up disabled.
+
+```bash
+npm run supabase:start
+npm run supabase:status
+```
+
+Copy the local API URL and publishable key shown by `supabase:status` into `.env`. Stop the stack with `npm run supabase:stop`.
+
+Database changes must be recorded as ordered migrations:
+
+```bash
+npm run supabase:migration:new -- descriptive_migration_name
+npm run supabase:db:reset
+npm run supabase:types
+```
+
+Prompt 02 intentionally does not convert `supabase/schema.sql` into a migration or run `supabase/seed.sql`; that work belongs to Prompt 03. Until migrations exist, generated `Database` types expose no tables. After a migration is applied, regenerate `lib/supabase/database.types.ts` with `npm run supabase:types` and commit the result.
+
+To connect the CLI to the hosted project later, run `npx supabase login`, then `npx supabase link --project-ref <project-ref>`. Review all migrations and row-level security policies before using `npx supabase db push`.
 
 ### Quality checks
 
@@ -68,7 +110,7 @@ npm run typecheck
 npm test -- --runInBand
 ```
 
-Use `npm run format` to apply Prettier formatting. Supabase, authentication and the AI coach are deliberately not configured in this initial setup.
+Use `npm run format` to apply Prettier formatting. Authentication and the AI coach are deliberately not configured in this foundation.
 
 ## Documents
 

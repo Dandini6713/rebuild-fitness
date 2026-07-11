@@ -12,20 +12,30 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "jest"
+    "test": "jest",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:status": "supabase status",
+    "supabase:db:reset": "supabase db reset",
+    "supabase:migration:new": "supabase migration new",
+    "supabase:types": "supabase gen types typescript --local > lib/supabase/database.types.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.2",
     "expo": "~57.0.4",
     "expo-constants": "~57.0.3",
     "expo-linking": "~57.0.2",
     "expo-router": "~57.0.4",
+    "expo-sqlite": "~57.0.0",
     "expo-status-bar": "~57.0.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
-    "react-native-web": "~0.21.0"
+    "react-native-url-polyfill": "^3.0.0",
+    "react-native-web": "~0.21.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@testing-library/react-native": "^14.0.1",
@@ -36,6 +46,7 @@
     "jest": "^29.7.0",
     "jest-expo": "~57.0.1",
     "prettier": "^3.9.0",
+    "supabase": "^2.109.1",
     "typescript": "~6.0.3"
   },
   "jest": {

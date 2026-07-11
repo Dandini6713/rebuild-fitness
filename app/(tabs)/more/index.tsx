@@ -5,6 +5,7 @@ import {
   SecondaryButton,
   StatusBadge,
 } from '@/components/common';
+import { SupabaseConnectionStatus } from '@/features/diagnostics/SupabaseConnectionStatus';
 
 export default function SettingsScreen() {
   return (
@@ -19,6 +20,11 @@ export default function SettingsScreen() {
         <SecondaryButton disabled label="Notifications" />
         <SecondaryButton disabled label="Privacy and help" />
       </Card>
+      <SectionHeader
+        description="No credentials or private health information are shown here."
+        title="Developer diagnostics"
+      />
+      <SupabaseConnectionStatus />
     </AppScreen>
   );
 }
