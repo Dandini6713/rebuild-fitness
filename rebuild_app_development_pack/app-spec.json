@@ -1,0 +1,133 @@
+{
+  "product": {
+    "name": "Rebuild",
+    "status": "private_mvp_specification",
+    "locale": "en-GB",
+    "timezone": "Europe/London"
+  },
+  "initial_user_configuration": {
+    "height_cm": 183,
+    "starting_weight_kg": 90,
+    "initial_target_weight_kg": 85,
+    "protein_target_g": 140,
+    "calorie_target_range_kcal": [
+      2000,
+      2200
+    ],
+    "work_hours": {
+      "days": [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday"
+      ],
+      "start": "08:30",
+      "end": "15:30"
+    },
+    "home_equipment": [
+      "dumbbell_10kg_pair"
+    ],
+    "injury_context": "previous_right_achilles_rupture"
+  },
+  "mvp_tabs": [
+    "today",
+    "plan",
+    "log",
+    "progress",
+    "more"
+  ],
+  "readiness": {
+    "rule_version": "readiness-1.0.0",
+    "green": {
+      "max_pain": 2,
+      "walking": "normal",
+      "stiffness": [
+        "better",
+        "same"
+      ]
+    },
+    "amber": {
+      "pain_range": [
+        3,
+        5
+      ],
+      "triggers": [
+        "worse_stiffness",
+        "mild_swelling",
+        "low_confidence"
+      ]
+    },
+    "red": {
+      "min_pain": 6,
+      "triggers": [
+        "sudden_change",
+        "significant_swelling",
+        "altered_walking_with_pain_4_plus"
+      ]
+    }
+  },
+  "weight_loss_target_kg_per_week": [
+    0.2,
+    0.6
+  ],
+  "calorie_adjustment_kcal": [
+    100,
+    150
+  ],
+  "running_stages": [
+    {
+      "stage": 1,
+      "run_seconds": 60,
+      "walk_seconds": 120,
+      "repeats": 8
+    },
+    {
+      "stage": 2,
+      "run_seconds": 90,
+      "walk_seconds": 120,
+      "repeats": 8
+    },
+    {
+      "stage": 3,
+      "run_seconds": 120,
+      "walk_seconds": 120,
+      "repeats": 7
+    },
+    {
+      "stage": 4,
+      "run_seconds": 180,
+      "walk_seconds": 120,
+      "repeats": 6
+    },
+    {
+      "stage": 5,
+      "run_seconds": 300,
+      "walk_seconds": 120,
+      "repeats": 4
+    },
+    {
+      "stage": 6,
+      "run_seconds": 480,
+      "walk_seconds": 120,
+      "repeats": 3
+    },
+    {
+      "stage": 7,
+      "run_seconds": 720,
+      "walk_seconds": 120,
+      "repeats": 2
+    },
+    {
+      "stage": 8,
+      "continuous_run_seconds": 1200
+    },
+    {
+      "stage": 9,
+      "continuous_run_seconds_range": [
+        1500,
+        1800
+      ]
+    }
+  ]
+}
