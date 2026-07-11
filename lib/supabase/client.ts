@@ -1,8 +1,8 @@
 import 'react-native-url-polyfill/auto';
-import 'expo-sqlite/localStorage/install';
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, processLock, SupabaseClient } from '@supabase/supabase-js';
 
+import { authStorage } from '@/lib/auth/secureAuthStorage';
 import { supabaseEnvironment } from '@/lib/validation/environment';
 
 import { initialiseSupabaseClient } from './clientFactory';
@@ -15,8 +15,9 @@ export const supabaseState = initialiseSupabaseClient<SupabaseClient<Database>>(
       auth: {
         autoRefreshToken: true,
         detectSessionInUrl: false,
+        lock: processLock,
         persistSession: true,
-        storage: globalThis.localStorage,
+        storage: authStorage,
       },
     }),
 );

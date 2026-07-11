@@ -76,6 +76,22 @@ The app starts safely without Supabase configuration and shows a setup-required 
 
 Only use a publishable client key. Never put a `service_role` key, an `sb_secret_…` key, a database password or another private credential in an `EXPO_PUBLIC_` variable. The mobile client still depends on row-level security; a publishable key does not bypass database policies.
 
+### Private-beta authentication
+
+Rebuild supports password sign-in for pre-created private-beta accounts. There is deliberately no public sign-up flow.
+
+For a hosted project:
+
+1. Open **Authentication → Users** in the Supabase dashboard.
+2. Select **Add user → Create new user**.
+3. Enter the private beta user's email and a strong unique password, and mark the email as confirmed only after verifying the address belongs to the intended user.
+4. Keep public email sign-up disabled in **Authentication → Providers → Email**.
+5. Start Rebuild and sign in with that account.
+
+For local development, start Supabase and open Studio at `http://127.0.0.1:54323`. Add a local-only user under **Authentication → Users**, then use the local API URL and publishable key in `.env`.
+
+On iOS and Android, Supabase sessions are split into small encrypted values stored with Expo SecureStore and restricted to the current device. The app restores the session on launch and refreshes it only while active. Signing out removes the local session and unmounts all protected routes. Web development keeps the session in memory rather than persisting tokens in browser storage, so a web-page refresh requires signing in again.
+
 ### Local Supabase development
 
 Local Supabase requires Docker Desktop or another Docker-compatible runtime. The repository includes the Supabase CLI and a private-beta configuration with public sign-up disabled.
