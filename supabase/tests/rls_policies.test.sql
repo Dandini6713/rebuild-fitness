@@ -2,7 +2,14 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(11);
+select plan(13);
+
+create temporary table rls_mutation_results (
+  operation text primary key,
+  affected_rows integer not null
+) on commit drop;
+
+grant select, insert on table rls_mutation_results to authenticated;
 
 select is(
   (
@@ -91,23 +98,50 @@ select results_eq(
   'health context is isolated by owner'
 );
 
+with changed as (
+  update public.profiles
+  set display_name = 'Changed'
+  where user_id = '22222222-2222-4222-8222-222222222222'
+  returning 1
+)
+insert into rls_mutation_results (operation, affected_rows)
+select 'update_other_profile', count(*)::integer from changed;
+
 select is(
-  (with changed as (
-    update public.profiles set display_name = 'Changed' where user_id = '22222222-2222-4222-8222-222222222222'
-    returning 1
-  ) select count(*)::integer from changed),
+  (select affected_rows from rls_mutation_results where operation = 'update_other_profile'),
   0,
   'a user cannot update another user profile'
 );
 
+with removed as (
+  delete from public.health_context
+  where user_id = '22222222-2222-4222-8222-222222222222'
+  returning 1
+)
+insert into rls_mutation_results (operation, affected_rows)
+select 'delete_other_health_context', count(*)::integer from removed;
+
 select is(
-  (with removed as (
-    delete from public.health_context where user_id = '22222222-2222-4222-8222-222222222222'
-    returning 1
-  ) select count(*)::integer from removed),
+  (select affected_rows from rls_mutation_results where operation = 'delete_other_health_context'),
   0,
   'a user cannot delete another user health context'
 );
+
+select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
+
+select results_eq(
+  $$ select display_name from public.profiles where user_id = '22222222-2222-4222-8222-222222222222' $$,
+  array['User B'::text],
+  'User B profile remains unchanged after User A update attempt'
+);
+
+select results_eq(
+  $$ select description from public.health_context where user_id = '22222222-2222-4222-8222-222222222222' $$,
+  array['User B private context'::text],
+  'User B health context remains after User A delete attempt'
+);
+
+select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
 
 select throws_ok(
   $$ insert into public.goals (user_id, goal_type) values ('22222222-2222-4222-8222-222222222222', 'cross-user') $$,
