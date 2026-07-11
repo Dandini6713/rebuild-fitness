@@ -65,8 +65,8 @@ schema_paths = []
 
 [db.seed]
 # If enabled, seeds the database after migrations during a db reset.
-# Keep disabled until Prompt 03 converts the reference schema into ordered migrations.
-enabled = false
+# Local-only catalogue seed. `supabase db push` does not run this file remotely.
+enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
 sql_paths = ["./seed.sql"]

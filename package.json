@@ -18,6 +18,7 @@
     "supabase:status": "supabase status",
     "supabase:db:reset": "supabase db reset",
     "supabase:migration:new": "supabase migration new",
+    "supabase:test:db": "supabase test db",
     "supabase:types": "supabase gen types typescript --local > lib/supabase/database.types.ts"
   },
   "dependencies": {

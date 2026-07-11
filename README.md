@@ -95,9 +95,19 @@ npm run supabase:db:reset
 npm run supabase:types
 ```
 
-Prompt 02 intentionally does not convert `supabase/schema.sql` into a migration or run `supabase/seed.sql`; that work belongs to Prompt 03. Until migrations exist, generated `Database` types expose no tables. After a migration is applied, regenerate `lib/supabase/database.types.ts` with `npm run supabase:types` and commit the result.
+The ordered migrations in `supabase/migrations` are the deployable schema source. `supabase/schema.sql` remains the reviewed reference and must not be executed manually against a hosted project. The local reset applies migrations and then loads the local-only exercise catalogue from `supabase/seed.sql`.
 
-To connect the CLI to the hosted project later, run `npx supabase login`, then `npx supabase link --project-ref <project-ref>`. Review all migrations and row-level security policies before using `npx supabase db push`.
+After changing or adding a migration, run:
+
+```bash
+npm run supabase:db:reset
+npm run supabase:test:db
+npm run supabase:types
+```
+
+Review the generated `lib/supabase/database.types.ts` diff and commit it with the migration. Never edit a migration after it has been applied to a shared or hosted database; add a new forward migration instead.
+
+To connect the CLI to the hosted project later, run `npx supabase login`, then `npx supabase link --project-ref <project-ref>`. Before deployment, run `npx supabase db diff --linked` and confirm the result is empty or expected. Review all migrations and row-level security policies before using `npx supabase db push`. The CLI does not run `supabase/seed.sql` during `db push`.
 
 ### Quality checks
 
