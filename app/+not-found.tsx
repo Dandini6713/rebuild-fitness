@@ -1,32 +1,30 @@
-import { Link, Stack } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Link } from 'expo-router';
+
+import { AppScreen, AppText, Card } from '@/components/common';
+import { useAppTheme } from '@/theme/useAppTheme';
 
 export default function NotFoundScreen() {
+  const { colours, spacing, touchTargets } = useAppTheme();
+
   return (
-    <>
-      <Stack.Screen options={{ headerShown: true, title: 'Not found' }} />
-      <View style={styles.container}>
-        <Text style={styles.title}>This screen does not exist.</Text>
-        <Link accessibilityRole="link" href="/(tabs)/today" style={styles.link}>
+    <AppScreen title="Page not found">
+      <Card>
+        <AppText tone="secondary">
+          The page you tried to open is not available.
+        </AppText>
+        <Link
+          accessibilityLabel="Return to Today"
+          accessibilityRole="link"
+          href="/(tabs)/today"
+          style={{
+            color: colours.accent,
+            minHeight: touchTargets.minimum,
+            paddingVertical: spacing.sm,
+          }}
+        >
           Return to Today
         </Link>
-      </View>
-    </>
+      </Card>
+    </AppScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  title: {
-    color: '#182323',
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 16,
-  },
-  link: { color: '#155e63', fontSize: 17, minHeight: 44, paddingVertical: 10 },
-});

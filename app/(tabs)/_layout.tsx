@@ -2,15 +2,25 @@ import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
 
 import { tabRoutes } from '@/features/navigation/tabRoutes';
+import { useAppTheme } from '@/theme/useAppTheme';
 
 export default function TabLayout() {
+  const { colours } = useAppTheme();
+
   return (
     <Tabs
       screenOptions={{
+        sceneStyle: { backgroundColor: colours.background },
         headerShown: false,
-        tabBarActiveTintColor: '#155e63',
-        tabBarInactiveTintColor: '#5f6b6b',
-        tabBarStyle: { minHeight: 64, paddingBottom: 8, paddingTop: 6 },
+        tabBarActiveTintColor: colours.accent,
+        tabBarInactiveTintColor: colours.textTertiary,
+        tabBarStyle: {
+          backgroundColor: colours.surface,
+          borderTopColor: colours.borderSubtle,
+          minHeight: 64,
+          paddingBottom: 8,
+          paddingTop: 6,
+        },
       }}
     >
       {tabRoutes.map((tab) => (
