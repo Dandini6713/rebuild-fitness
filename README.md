@@ -27,6 +27,49 @@ The private MVP is configured around Danny's current situation:
 
 This repository pack is a product and engineering specification. It does not contain a finished application.
 
+## Local development
+
+### Prerequisites
+
+- Node.js 22 LTS
+- npm 10 or later
+- Xcode and an iOS Simulator for local iPhone development, or the Expo Go app on a physical device
+
+### Install and run
+
+From the repository root, install the locked dependencies:
+
+```bash
+npm ci
+```
+
+Start the Expo development server:
+
+```bash
+npm start
+```
+
+Then press `i` in the Expo terminal to open the iOS Simulator, scan the displayed QR code with a compatible Expo Go client, or run the simulator directly with:
+
+```bash
+npm run ios
+```
+
+The web and Android development targets can be started with `npm run web` and `npm run android` respectively. No environment variables are required for this initial application shell; `.env.example` records that intentionally.
+
+### Quality checks
+
+Run the same checks used by continuous integration:
+
+```bash
+npm run format:check
+npm run lint
+npm run typecheck
+npm test -- --runInBand
+```
+
+Use `npm run format` to apply Prettier formatting. Supabase, authentication and the AI coach are deliberately not configured in this initial setup.
+
 ## Documents
 
 1. `docs/01_PRODUCT_REQUIREMENTS.md`, formal product requirements and acceptance criteria.
