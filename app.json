@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Rebuild",
+    "slug": "rebuild-fitness",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "rebuild",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.dandini6713.rebuildfitness"
+    },
+    "android": {
+      "package": "com.dandini6713.rebuildfitness"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

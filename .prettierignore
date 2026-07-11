@@ -1,0 +1,12 @@
+.expo
+AGENTS.md
+REBUILD_COMPLETE_SPECIFICATION.md
+app-spec.json
+coverage
+docs
+node_modules
+outputs
+prompts
+work
+package-lock.json
+supabase
