@@ -18,11 +18,13 @@ const exercise = (
   name: 'Leg press',
   order: 1,
   previous: { performedAt: '2026-07-05', repetitions: 10, weightKg: 22.5 },
+  proposal: null,
   repMax: 12,
   repMin: 8,
   restSeconds: 90,
   slug: 'leg-press',
   targetSets: 2,
+  templateExerciseId: 'te-1',
   ...overrides,
 });
 
@@ -31,6 +33,7 @@ const ready = (overrides: Partial<PlayerReady> = {}): PlayerReady => ({
   elapsedSeconds: 185,
   ending: false,
   endError: null,
+  decidingProposal: false,
   exercise: exercise(),
   exerciseCount: 6,
   exerciseNumber: 1,
@@ -38,11 +41,13 @@ const ready = (overrides: Partial<PlayerReady> = {}): PlayerReady => ({
     discomfortScore: 0,
     effortScore: null,
     repetitions: 10,
+    techniqueControlled: true,
     weightKg: 20,
   },
   isComplete: false,
   lastSetSynced: null,
   logging: false,
+  proposal: null,
   rest: { active: false, remainingSeconds: 0 },
   setsDone: 0,
   setsForExercise: [],
@@ -56,8 +61,10 @@ function callbacks(
   overrides: Partial<WorkoutPlayerCallbacks> = {},
 ): WorkoutPlayerCallbacks {
   return {
+    onAcceptProposal: jest.fn(),
     onAdjustReps: jest.fn(),
     onAdjustWeight: jest.fn(),
+    onDismissProposal: jest.fn(),
     onEnd: jest.fn(),
     onExit: jest.fn(),
     onLogSet: jest.fn(),
@@ -66,6 +73,7 @@ function callbacks(
     onPreviousExercise: jest.fn(),
     onSetDiscomfort: jest.fn(),
     onSetEffort: jest.fn(),
+    onSetTechniqueControlled: jest.fn(),
     onSkipRest: jest.fn(),
     ...overrides,
   };
@@ -151,6 +159,15 @@ describe('WorkoutPlayerView — the exercise card', () => {
     expect(cb.onSetDiscomfort).toHaveBeenCalledWith(3);
   });
 
+  it('captures whether technique felt controlled', async () => {
+    const cb = callbacks();
+    const view = await renderView(ready(), cb);
+    await act(async () => {
+      fireEvent.press(view.getByLabelText('Technique not controlled'));
+    });
+    expect(cb.onSetTechniqueControlled).toHaveBeenCalledWith(false);
+  });
+
   it('links each exercise to its guide', async () => {
     const cb = callbacks();
     const view = await renderView(ready(), cb);
@@ -208,6 +225,48 @@ describe('WorkoutPlayerView — discomfort and replace', () => {
       );
     });
     expect(cb.onOpenGuide).toHaveBeenCalledWith('leg-press');
+  });
+});
+
+describe('WorkoutPlayerView — progression proposal', () => {
+  const increaseProposal = {
+    currentWeightKg: 40,
+    decision: 'increase' as const,
+    id: 'prop-1',
+    proposedWeightKg: 42.5,
+    reasons: [
+      { code: 'increase-ready', message: 'Every set reached the top.' },
+    ],
+  };
+
+  it('shows an increase suggestion with its weight and reasons, and accepts it', async () => {
+    const cb = callbacks();
+    const view = await renderView(ready({ proposal: increaseProposal }), cb);
+    expect(view.getByText('A weight increase is suggested')).toBeOnTheScreen();
+    expect(
+      view.getByText('Suggested weight: 42.5 kg (from 40 kg).'),
+    ).toBeOnTheScreen();
+    expect(view.getByText('Every set reached the top.')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(
+        view.getByLabelText('Accept the suggestion and use 42.5 kg'),
+      );
+    });
+    expect(cb.onAcceptProposal).toHaveBeenCalled();
+  });
+
+  it('lets the user dismiss a suggestion with "Not now"', async () => {
+    const cb = callbacks();
+    const view = await renderView(ready({ proposal: increaseProposal }), cb);
+    await act(async () => {
+      fireEvent.press(view.getByLabelText('Not now'));
+    });
+    expect(cb.onDismissProposal).toHaveBeenCalled();
+  });
+
+  it('shows no proposal card when there is none', async () => {
+    const view = await renderView(ready({ proposal: null }));
+    expect(view.queryByText(/suggestion/i)).toBeNull();
   });
 });
 

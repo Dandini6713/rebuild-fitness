@@ -25,6 +25,10 @@ export type PersistedSet = {
   repetitions: number | null;
   effortScore: number | null;
   discomfortScore: number | null;
+  // Whether the lifter marked technique as controlled on this set. Null when not
+  // captured; the strength-progression rule (docs/06 §6.4) treats null as "not
+  // controlled" and never proposes an increase off it.
+  techniqueControlled: boolean | null;
   completedAt: string;
   synced: boolean;
 };

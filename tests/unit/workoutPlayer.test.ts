@@ -34,6 +34,7 @@ const set = (exerciseId: string, setNumber: number): LoggedSet => ({
   exerciseId,
   repetitions: 10,
   setNumber,
+  techniqueControlled: true,
   weightKg: 20,
 });
 

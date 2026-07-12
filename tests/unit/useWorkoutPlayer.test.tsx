@@ -15,24 +15,29 @@ jest.mock('@/features/auth/AuthProvider', () => ({
 
 const NOW = new Date('2026-07-12T10:03:05.000Z');
 
-const model = (): PlayerReadModel => ({
+const model = (overrides: Partial<PlayerReadModel> = {}): PlayerReadModel => ({
   exercises: [
     {
       exerciseId: 'ex-1',
       name: 'Leg press',
       order: 1,
       previous: null,
+      proposal: null,
       repMax: 12,
       repMin: 8,
       restSeconds: 90,
       slug: 'leg-press',
       targetSets: 2,
+      templateExerciseId: 'te-1',
     },
   ],
   loggedSets: [],
   logId: 'wl-1',
+  scheduledSessionId: 'sess-1',
   startedAt: '2026-07-12T10:00:00.000Z',
+  templateId: 'tmpl-1',
   workoutName: 'Strength A',
+  ...overrides,
 });
 
 function repository(
@@ -41,6 +46,9 @@ function repository(
   return {
     completeWorkout: jest.fn<WorkoutPlayerRepository['completeWorkout']>(
       async () => ({ success: true, syncedCount: 0 }),
+    ),
+    decideProposal: jest.fn<WorkoutPlayerRepository['decideProposal']>(
+      async () => ({ ok: true }),
     ),
     loadSession: jest.fn<WorkoutPlayerRepository['loadSession']>(
       async (): Promise<LoadResult> => ({ model: model(), status: 'ready' }),
@@ -52,6 +60,7 @@ function repository(
         exerciseId: input.exerciseId,
         repetitions: input.repetitions,
         setNumber: input.setNumber,
+        techniqueControlled: input.techniqueControlled,
         weightKg: input.weightKg,
       },
       synced: false,
@@ -123,7 +132,7 @@ describe('useWorkoutPlayer', () => {
     }
   });
 
-  it('finishes the workout and calls back on success', async () => {
+  it('finishes the workout, passing the scheduled session and template so it can be closed and evaluated', async () => {
     const repo = repository();
     const { result } = await renderPlayer(repo);
     await waitFor(() => expect(result.current.state.status).toBe('ready'));
@@ -134,7 +143,125 @@ describe('useWorkoutPlayer', () => {
     });
 
     await waitFor(() => expect(onComplete).toHaveBeenCalled());
-    expect(repo.completeWorkout).toHaveBeenCalled();
+    expect(repo.completeWorkout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        logId: 'wl-1',
+        scheduledSessionId: 'sess-1',
+        templateId: 'tmpl-1',
+        userId: 'user-1',
+      }),
+    );
+  });
+
+  it('accepts a progression proposal, prefilling the suggested weight and clearing it for good', async () => {
+    const repo = repository({
+      loadSession: jest.fn<WorkoutPlayerRepository['loadSession']>(
+        async () => ({
+          model: model({
+            exercises: [
+              {
+                exerciseId: 'ex-1',
+                name: 'Leg press',
+                order: 1,
+                previous: null,
+                proposal: {
+                  currentWeightKg: 40,
+                  decision: 'increase',
+                  id: 'prop-1',
+                  proposedWeightKg: 42.5,
+                  reasons: [
+                    { code: 'increase-ready', message: 'Nicely done.' },
+                  ],
+                },
+                repMax: 12,
+                repMin: 8,
+                restSeconds: 90,
+                slug: 'leg-press',
+                targetSets: 2,
+                templateExerciseId: 'te-1',
+              },
+            ],
+          }),
+          status: 'ready',
+        }),
+      ),
+    });
+    const { result } = await renderPlayer(repo);
+    await waitFor(() => {
+      const state = result.current.state;
+      expect(state.status === 'ready' && state.proposal?.id).toBe('prop-1');
+    });
+
+    await act(async () => {
+      result.current.acceptProposal();
+    });
+
+    expect(repo.decideProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ proposalId: 'prop-1', status: 'accepted' }),
+    );
+    const state = result.current.state;
+    if (state.status === 'ready') {
+      // Cleared from view and never shown again...
+      expect(state.proposal).toBeNull();
+      // ...and the suggested weight is prefilled for the next set.
+      expect(state.inputs.weightKg).toBe(42.5);
+    }
+  });
+
+  it('dismisses a proposal without changing the weight, and it does not reappear', async () => {
+    const repo = repository({
+      loadSession: jest.fn<WorkoutPlayerRepository['loadSession']>(
+        async () => ({
+          model: model({
+            exercises: [
+              {
+                exerciseId: 'ex-1',
+                name: 'Leg press',
+                order: 1,
+                previous: null,
+                proposal: {
+                  currentWeightKg: 40,
+                  decision: 'increase',
+                  id: 'prop-9',
+                  proposedWeightKg: 42.5,
+                  reasons: [],
+                },
+                repMax: 12,
+                repMin: 8,
+                restSeconds: 90,
+                slug: 'leg-press',
+                targetSets: 2,
+                templateExerciseId: 'te-1',
+              },
+            ],
+          }),
+          status: 'ready',
+        }),
+      ),
+    });
+    const { result } = await renderPlayer(repo);
+    await waitFor(() => {
+      const state = result.current.state;
+      expect(state.status === 'ready' && state.proposal?.id).toBe('prop-9');
+    });
+    const before =
+      result.current.state.status === 'ready'
+        ? result.current.state.inputs.weightKg
+        : null;
+
+    await act(async () => {
+      result.current.dismissProposal();
+    });
+
+    expect(repo.decideProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ proposalId: 'prop-9', status: 'dismissed' }),
+    );
+    const state = result.current.state;
+    if (state.status === 'ready') {
+      expect(state.proposal).toBeNull();
+      // The weight is untouched by a dismissal.
+      expect(state.inputs.weightKg).toBe(before);
+    }
   });
 
   it('is unavailable when no repository is configured', async () => {

@@ -25,10 +25,16 @@ const CREATE_TABLE = `
     repetitions integer,
     effort_score integer,
     discomfort_score integer,
+    technique_controlled integer,
     completed_at text not null,
     synced integer not null default 0
   );
 `;
+
+// Bring a database created before technique_controlled existed up to date. A
+// no-op once the column is present; the duplicate-column error is swallowed.
+const ADD_TECHNIQUE_COLUMN =
+  'alter table active_set_logs add column technique_controlled integer';
 
 type Row = {
   client_operation_id: string;
@@ -40,6 +46,7 @@ type Row = {
   repetitions: number | null;
   effort_score: number | null;
   discomfort_score: number | null;
+  technique_controlled: number | null;
   completed_at: string;
   synced: number;
 };
@@ -55,6 +62,9 @@ function toPersisted(row: Row): PersistedSet {
     repetitions: row.repetitions,
     setNumber: row.set_number,
     synced: row.synced === 1,
+    // SQLite has no boolean: 1/0 map to true/false, null stays null (not captured).
+    techniqueControlled:
+      row.technique_controlled === null ? null : row.technique_controlled === 1,
     weightKg: row.weight_kg,
     workoutLogId: row.workout_log_id,
   };
@@ -63,6 +73,11 @@ function toPersisted(row: Row): PersistedSet {
 export function createSqliteWorkoutStore(): ActiveWorkoutStore {
   const db = SQLite.openDatabaseSync('rebuild-active-workout.db');
   db.execSync(CREATE_TABLE);
+  try {
+    db.execSync(ADD_TECHNIQUE_COLUMN);
+  } catch {
+    // The column already exists on an up-to-date database; nothing to do.
+  }
 
   return {
     async clearWorkout(workoutLogId) {
@@ -96,9 +111,9 @@ export function createSqliteWorkoutStore(): ActiveWorkoutStore {
       await db.runAsync(
         `insert or replace into active_set_logs (
           client_operation_id, workout_log_id, exercise_id, exercise_order, set_number,
-          weight_kg, repetitions, effort_score, discomfort_score,
+          weight_kg, repetitions, effort_score, discomfort_score, technique_controlled,
           completed_at, synced
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           set.clientOperationId,
           set.workoutLogId,
@@ -109,6 +124,11 @@ export function createSqliteWorkoutStore(): ActiveWorkoutStore {
           set.repetitions,
           set.effortScore,
           set.discomfortScore,
+          set.techniqueControlled === null
+            ? null
+            : set.techniqueControlled
+              ? 1
+              : 0,
           set.completedAt,
           set.synced ? 1 : 0,
         ],

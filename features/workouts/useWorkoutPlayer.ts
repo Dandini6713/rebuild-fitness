@@ -27,6 +27,7 @@ import { createOperationId as defaultCreateOperationId } from '@/lib/ids';
 import { defaultWorkoutPlayerRepository } from './defaultWorkoutPlayerRepository';
 import type {
   PlayerExerciseView,
+  PlayerProposal,
   PlayerReadModel,
   WorkoutPlayerRepository,
 } from './workoutPlayerRepository';
@@ -38,6 +39,9 @@ export type SetInputs = {
   repetitions: number;
   effortScore: number | null;
   discomfortScore: number;
+  // Whether the lifter marks this set's technique as controlled. Defaults to true
+  // (most sets are); unchecking records honest evidence for the progression rule.
+  techniqueControlled: boolean;
 };
 
 export type RestTimer = { active: boolean; remainingSeconds: number };
@@ -60,6 +64,10 @@ export type PlayerReady = {
   lastSetSynced: boolean | null;
   ending: boolean;
   endError: string | null;
+  // The newest still-open progression proposal for the current exercise, if any.
+  // Resolved (accepted or dismissed) proposals are cleared and never reappear.
+  proposal: PlayerProposal | null;
+  decidingProposal: boolean;
 };
 
 export type PlayerViewState =
@@ -78,11 +86,14 @@ export type UseWorkoutPlayerValue = {
   setReps: (value: number) => void;
   setEffort: (value: number) => void;
   setDiscomfort: (value: number) => void;
+  setTechniqueControlled: (value: boolean) => void;
   logSet: () => void;
   goToPreviousExercise: () => void;
   goToNextExercise: () => void;
   skipRest: () => void;
   retrySync: () => void;
+  acceptProposal: () => void;
+  dismissProposal: () => void;
   endWorkout: (onComplete: () => void) => void;
 };
 
@@ -107,6 +118,7 @@ function defaultInputs(
     discomfortScore: 0,
     effortScore: null,
     repetitions: Math.max(0, repetitions),
+    techniqueControlled: true,
     weightKg: Math.max(0, weightKg),
   };
 }
@@ -159,6 +171,12 @@ export function useWorkoutPlayer(
   const [restDuration, setRestDuration] = useState(DEFAULT_REST_SECONDS);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
+  // Proposals the user has accepted or dismissed this session, by id, so a resolved
+  // proposal is cleared from view immediately and never shown again.
+  const [resolvedProposalIds, setResolvedProposalIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [decidingProposal, setDecidingProposal] = useState(false);
 
   // Which exercise the player is showing: the first still-outstanding one, unless
   // the user has stepped away manually (manualIndex), clamped into range.
@@ -286,6 +304,10 @@ export function useWorkoutPlayer(
       updateInputs({ discomfortScore: clamp(Math.round(value), 0, 10) }),
     [updateInputs],
   );
+  const setTechniqueControlled = useCallback(
+    (value: boolean) => updateInputs({ techniqueControlled: value }),
+    [updateInputs],
+  );
 
   const logSet = useCallback(() => {
     if (
@@ -312,6 +334,7 @@ export function useWorkoutPlayer(
         logId: model.logId,
         repetitions: inputs.repetitions,
         setNumber,
+        techniqueControlled: inputs.techniqueControlled,
         userId,
         weightKg: inputs.weightKg,
       })
@@ -352,6 +375,56 @@ export function useWorkoutPlayer(
     void repository.syncPending({ logId: model.logId, userId });
   }, [model, repository, userId]);
 
+  // The proposal currently shown: the current exercise's newest proposal, unless
+  // the user has already resolved it this session.
+  const activeProposal =
+    currentExercise?.proposal &&
+    !resolvedProposalIds.has(currentExercise.proposal.id)
+      ? currentExercise.proposal
+      : null;
+
+  const resolveProposal = useCallback(
+    (
+      status: 'accepted' | 'dismissed',
+      onAccepted?: (weight: number) => void,
+    ) => {
+      if (
+        repository === null ||
+        !userId ||
+        !activeProposal ||
+        decidingProposal
+      ) {
+        return;
+      }
+      const proposal = activeProposal;
+      setDecidingProposal(true);
+      // Clear it from view immediately; the write is confirmation, not a gate.
+      setResolvedProposalIds((current) => new Set(current).add(proposal.id));
+      if (status === 'accepted' && proposal.proposedWeightKg !== null) {
+        onAccepted?.(proposal.proposedWeightKg);
+      }
+      void repository
+        .decideProposal({
+          decidedAtIso: new Date(clock()).toISOString(),
+          proposalId: proposal.id,
+          status,
+          userId,
+        })
+        .then(() => setDecidingProposal(false));
+    },
+    [activeProposal, clock, decidingProposal, repository, userId],
+  );
+
+  const acceptProposal = useCallback(() => {
+    resolveProposal('accepted', (weight) =>
+      updateInputs({ weightKg: Math.max(0, weight) }),
+    );
+  }, [resolveProposal, updateInputs]);
+
+  const dismissProposal = useCallback(() => {
+    resolveProposal('dismissed');
+  }, [resolveProposal]);
+
   const endWorkout = useCallback(
     (onComplete: () => void) => {
       if (repository === null || !userId || !model || ending) {
@@ -363,7 +436,9 @@ export function useWorkoutPlayer(
         .completeWorkout({
           completedAtIso: new Date(clock()).toISOString(),
           logId: model.logId,
+          scheduledSessionId: model.scheduledSessionId,
           sessionEffort: null,
+          templateId: model.templateId,
           userId,
         })
         .then((result) => {
@@ -404,6 +479,7 @@ export function useWorkoutPlayer(
     const progress = deriveExerciseProgress(currentExercise, loggedSets);
     return {
       completedCount: completedExerciseCount(exercises, loggedSets),
+      decidingProposal,
       elapsedSeconds: elapsedSeconds(model.startedAt, nowMs),
       ending,
       endError,
@@ -414,6 +490,7 @@ export function useWorkoutPlayer(
       isComplete: complete,
       lastSetSynced,
       logging,
+      proposal: activeProposal,
       rest,
       setsDone: progress.setsDone,
       setsForExercise: setsForExercise(loggedSets, currentExercise.exerciseId),
@@ -422,8 +499,10 @@ export function useWorkoutPlayer(
       workoutName: model.workoutName,
     };
   }, [
+    activeProposal,
     complete,
     currentExercise,
+    decidingProposal,
     effectiveIndex,
     endError,
     ending,
@@ -441,8 +520,10 @@ export function useWorkoutPlayer(
   ]);
 
   return {
+    acceptProposal,
     adjustReps,
     adjustWeight,
+    dismissProposal,
     endWorkout,
     goToNextExercise,
     goToPreviousExercise,
@@ -451,6 +532,7 @@ export function useWorkoutPlayer(
     setDiscomfort,
     setEffort,
     setReps,
+    setTechniqueControlled,
     setWeight,
     skipRest,
     state,

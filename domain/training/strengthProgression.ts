@@ -151,7 +151,10 @@ function workingWeight(exposure: Exposure): number | null {
   return weights.length === 0 ? null : Math.max(...weights);
 }
 
-function summariseExposure(exposure: Exposure, repMax: number | null): ExposureSummary {
+function summariseExposure(
+  exposure: Exposure,
+  repMax: number | null,
+): ExposureSummary {
   const sets = exposure.sets;
   const efforts = sets
     .map((set) => set.effortScore)
@@ -166,7 +169,9 @@ function summariseExposure(exposure: Exposure, repMax: number | null): ExposureS
     allSetsAtRepMax:
       repMax !== null &&
       sets.length > 0 &&
-      sets.every((set) => set.repetitions !== null && set.repetitions >= repMax),
+      sets.every(
+        (set) => set.repetitions !== null && set.repetitions >= repMax,
+      ),
     allTechniqueControlled:
       sets.length > 0 && sets.every((set) => set.techniqueControlled === true),
     maxDiscomfort: discomforts.length === 0 ? null : Math.max(...discomforts),
@@ -204,7 +209,10 @@ function exposureMeetsIncreaseStandard(
   );
 }
 
-function anySetDiscomfortAtLeast(exposure: Exposure, threshold: number): boolean {
+function anySetDiscomfortAtLeast(
+  exposure: Exposure,
+  threshold: number,
+): boolean {
   return exposure.sets.some(
     (set) => set.discomfortScore !== null && set.discomfortScore >= threshold,
   );
@@ -240,7 +248,9 @@ function holdReasons(
   const repsAtTop =
     repMax !== null &&
     exposure.sets.length > 0 &&
-    exposure.sets.every((set) => set.repetitions !== null && set.repetitions >= repMax);
+    exposure.sets.every(
+      (set) => set.repetitions !== null && set.repetitions >= repMax,
+    );
   if (!repsAtTop) {
     reasons.push({
       code: 'reps-below-top',

@@ -30,8 +30,10 @@ export default function WorkoutSessionScreen() {
   }, [isOffline, player]);
 
   const callbacks: WorkoutPlayerCallbacks = {
+    onAcceptProposal: player.acceptProposal,
     onAdjustReps: player.adjustReps,
     onAdjustWeight: player.adjustWeight,
+    onDismissProposal: player.dismissProposal,
     onEnd: () => player.endWorkout(() => router.back()),
     onExit: () => router.back(),
     onLogSet: player.logSet,
@@ -40,6 +42,7 @@ export default function WorkoutSessionScreen() {
     onPreviousExercise: player.goToPreviousExercise,
     onSetDiscomfort: player.setDiscomfort,
     onSetEffort: player.setEffort,
+    onSetTechniqueControlled: player.setTechniqueControlled,
     onSkipRest: player.skipRest,
   };
 

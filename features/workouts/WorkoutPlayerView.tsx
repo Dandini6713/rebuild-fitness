@@ -29,6 +29,7 @@ import { useAppTheme } from '@/theme/useAppTheme';
 
 import type {
   PlayerExerciseView,
+  PlayerProposal,
   PlayerReadModel,
 } from './workoutPlayerRepository';
 import type {
@@ -44,10 +45,13 @@ export type WorkoutPlayerCallbacks = {
   onAdjustReps: (delta: number) => void;
   onSetEffort: (value: number) => void;
   onSetDiscomfort: (value: number) => void;
+  onSetTechniqueControlled: (value: boolean) => void;
   onLogSet: () => void;
   onPreviousExercise: () => void;
   onNextExercise: () => void;
   onSkipRest: () => void;
+  onAcceptProposal: () => void;
+  onDismissProposal: () => void;
   onEnd: () => void;
   onOpenGuide: (slug: string) => void;
   onExit: () => void;
@@ -295,6 +299,15 @@ function ExerciseCard({
 
       <PreviousResult text={previousText(exercise)} />
 
+      {state.proposal ? (
+        <ProposalCard
+          deciding={state.decidingProposal}
+          onAccept={callbacks.onAcceptProposal}
+          onDismiss={callbacks.onDismissProposal}
+          proposal={state.proposal}
+        />
+      ) : null}
+
       <SetProgress
         setsDone={state.setsDone}
         setsForExercise={state.setsForExercise}
@@ -458,7 +471,144 @@ function SetInputsPanel({
         optionAccessibilityLabel={(value) => `Discomfort ${value} out of 10`}
         value={inputs.discomfortScore}
       />
+      <TechniqueToggle
+        onSelect={callbacks.onSetTechniqueControlled}
+        value={inputs.techniqueControlled}
+      />
     </View>
+  );
+}
+
+// Whether technique felt controlled on this set. A two-option choice conveyed by
+// text and a tick, never colour alone (docs/09 §9.2/§9.8). It records what the
+// lifter tells us; the progression rule only ever proposes an increase when
+// technique is marked controlled (docs/06 §6.4).
+function TechniqueToggle({
+  onSelect,
+  value,
+}: {
+  onSelect: (value: boolean) => void;
+  value: boolean;
+}) {
+  const { colours, radii, spacing, touchTargets } = useAppTheme();
+  const options: { label: string; selected: boolean; next: boolean }[] = [
+    { label: 'Controlled', next: true, selected: value },
+    { label: 'Not controlled', next: false, selected: !value },
+  ];
+  return (
+    <View style={{ gap: spacing.xs }}>
+      <AppText variant="label">Technique</AppText>
+      <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+        {options.map((option) => (
+          <Pressable
+            accessibilityLabel={`Technique ${option.label.toLowerCase()}`}
+            accessibilityRole="button"
+            accessibilityState={{ selected: option.selected }}
+            key={option.label}
+            onPress={() => onSelect(option.next)}
+            style={{
+              alignItems: 'center',
+              backgroundColor: option.selected
+                ? colours.accent
+                : colours.surface,
+              borderColor: option.selected ? colours.accent : colours.border,
+              borderRadius: radii.medium,
+              borderWidth: 1,
+              flex: 1,
+              flexDirection: 'row',
+              gap: 4,
+              justifyContent: 'center',
+              minHeight: touchTargets.minimum,
+              paddingHorizontal: spacing.sm,
+            }}
+          >
+            {option.selected ? (
+              <AppText style={{ color: colours.onAccent }} variant="caption">
+                ✓
+              </AppText>
+            ) : null}
+            <AppText
+              style={{
+                color: option.selected ? colours.onAccent : colours.textPrimary,
+              }}
+              variant="label"
+            >
+              {option.label}
+            </AppText>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// The newest progression suggestion for this exercise (docs/06 §6.4). It only ever
+// proposes; nothing changes until the user explicitly accepts. Accepting prefills
+// the suggested weight for the next set; "Not now" dismisses it for good. Status is
+// conveyed by text and icon, never colour alone, and no copy diagnoses anything.
+function ProposalCard({
+  deciding,
+  onAccept,
+  onDismiss,
+  proposal,
+}: {
+  deciding: boolean;
+  onAccept: () => void;
+  onDismiss: () => void;
+  proposal: PlayerProposal;
+}) {
+  const { spacing } = useAppTheme();
+  const isIncrease = proposal.decision === 'increase';
+  const heading =
+    proposal.decision === 'increase'
+      ? 'A weight increase is suggested'
+      : proposal.decision === 'reduce_or_substitute'
+        ? 'A gentler weight is suggested'
+        : 'Keeping the weight the same is suggested';
+  const tone =
+    proposal.decision === 'reduce_or_substitute' ? 'caution' : 'info';
+  return (
+    <Card accessibilityLabel={`Progression suggestion: ${heading}.`}>
+      <StatusBadge label="Suggestion" tone={tone} />
+      <View style={{ gap: spacing.xxs }}>
+        <AppText variant="label">{heading}</AppText>
+        {proposal.proposedWeightKg !== null ? (
+          <AppText tone="secondary">
+            Suggested weight: {formatWeight(proposal.proposedWeightKg)} kg
+            {proposal.currentWeightKg !== null
+              ? ` (from ${formatWeight(proposal.currentWeightKg)} kg)`
+              : ''}
+            .
+          </AppText>
+        ) : null}
+        {proposal.reasons.map((reason) => (
+          <AppText key={reason.code} tone="secondary" variant="caption">
+            {reason.message}
+          </AppText>
+        ))}
+      </View>
+      <PrimaryButton
+        accessibilityLabel={
+          isIncrease && proposal.proposedWeightKg !== null
+            ? `Accept the suggestion and use ${formatWeight(
+                proposal.proposedWeightKg,
+              )} kg`
+            : 'Accept this suggestion'
+        }
+        label={
+          proposal.proposedWeightKg !== null ? 'Use this weight' : 'Accept'
+        }
+        loading={deciding}
+        onPress={onAccept}
+      />
+      <SecondaryButton
+        accessibilityHint="Dismisses this suggestion; it will not appear again."
+        accessibilityLabel="Not now"
+        disabled={deciding}
+        label="Not now"
+        onPress={onDismiss}
+      />
+    </Card>
   );
 }
 

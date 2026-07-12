@@ -33,6 +33,9 @@ export type LoggedSet = {
   repetitions: number | null;
   effortScore: number | null;
   discomfortScore: number | null;
+  // Whether technique was marked controlled on this set. Null when not captured;
+  // the strength-progression rule (docs/06 §6.4) never reads a null as controlled.
+  techniqueControlled: boolean | null;
 };
 
 // A prior result for one exercise, taken from earlier sessions' set logs. Held

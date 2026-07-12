@@ -24,6 +24,10 @@ import {
   type PreviousResult,
   type PriorSet,
 } from '@/domain/training/workoutPlayer';
+import {
+  evaluateStrengthProgression,
+  type Exposure,
+} from '@/domain/training/strengthProgression';
 import type {
   ActiveWorkoutStore,
   PersistedSet,
@@ -41,6 +45,7 @@ type RawSession = {
 };
 type RawLog = { id: string; started_at: string };
 type RawTemplateExercise = {
+  templateExerciseId: string;
   exerciseId: string;
   slug: string;
   name: string;
@@ -49,6 +54,10 @@ type RawTemplateExercise = {
   repMin: number | null;
   repMax: number | null;
   restSeconds: number | null;
+  // Roadmap 12 progression config. A null increment means the exercise is not
+  // eligible for a weight-increase proposal.
+  weightIncrementKg: number | null;
+  singleExposureProgression: boolean;
 };
 type RawPriorSet = {
   exerciseId: string;
@@ -65,7 +74,31 @@ type RawRecordedSet = {
   repetitions: number | null;
   effortScore: number | null;
   discomfortScore: number | null;
+  techniqueControlled: boolean | null;
   completedAt: string;
+};
+
+// One set from a previous *completed* workout, for the progression evaluator. The
+// exposure it belongs to is identified by its workout_log_id; the repository groups
+// these into exposures ordered most recent first.
+type RawExposureSet = {
+  exerciseId: string;
+  workoutLogId: string;
+  exposureAt: string;
+  weightKg: number | null;
+  repetitions: number | null;
+  effortScore: number | null;
+  discomfortScore: number | null;
+  techniqueControlled: boolean | null;
+};
+
+type RawProposal = {
+  id: string;
+  templateExerciseId: string;
+  decision: DecisionCode;
+  proposedWeightKg: number | null;
+  currentWeightKg: number | null;
+  reasons: ProposalReason[];
 };
 
 export type SetSyncRow = {
@@ -75,9 +108,27 @@ export type SetSyncRow = {
   repetitions: number | null;
   effortScore: number | null;
   discomfortScore: number | null;
+  techniqueControlled: boolean | null;
   clientOperationId: string;
   completedAtIso: string;
   userId: string;
+};
+
+export type DecisionCode = 'increase' | 'hold' | 'reduce_or_substitute';
+export type ProposalReason = { code: string; message: string };
+
+// A progression proposal ready to insert (the pure decision plus its owning ids).
+export type ProgressionProposalRow = {
+  userId: string;
+  templateExerciseId: string;
+  exerciseId: string;
+  workoutLogId: string;
+  decision: DecisionCode;
+  proposedWeightKg: number | null;
+  currentWeightKg: number | null;
+  reasons: ProposalReason[];
+  inputs: unknown;
+  ruleVersion: string;
 };
 
 export type WorkoutPlayerBackend = {
@@ -124,16 +175,56 @@ export type WorkoutPlayerBackend = {
     sessionEffort: number | null;
     completedAtIso: string;
   }): Promise<{ error: BackendError }>;
+  // Roadmap 12. Close the scheduled session so the weekly planner stops showing a
+  // finished session as planned. A plain owner-scoped update (like move/skip).
+  updateScheduledSessionStatus(input: {
+    scheduledSessionId: string;
+    userId: string;
+    status: 'completed';
+  }): Promise<{ error: BackendError }>;
+  // Every completed exposure (grouped later by workout_log_id) for the given
+  // exercises, for the progression evaluator.
+  fetchCompletedExposures(input: {
+    exerciseIds: string[];
+  }): Promise<{ data: RawExposureSet[] | null; error: BackendError }>;
+  insertProgressionProposal(
+    row: ProgressionProposalRow,
+  ): Promise<{ error: BackendError }>;
+  // The newest still-'proposed' proposal for each of the given template exercises.
+  fetchLatestProposals(input: {
+    templateExerciseIds: string[];
+  }): Promise<{ data: RawProposal[] | null; error: BackendError }>;
+  decideProposal(input: {
+    proposalId: string;
+    userId: string;
+    status: 'accepted' | 'dismissed';
+    decidedAtIso: string;
+  }): Promise<{ error: BackendError }>;
 };
 
 // --- Read model ---------------------------------------------------------------
 
+// The newest 'proposed' progression proposal for an exercise, surfaced in the
+// player next to the previous result. The user accepts or dismisses it explicitly;
+// nothing is applied without that action.
+export type PlayerProposal = {
+  id: string;
+  decision: DecisionCode;
+  proposedWeightKg: number | null;
+  currentWeightKg: number | null;
+  reasons: ProposalReason[];
+};
+
 export type PlayerExerciseView = PlayerExercise & {
+  templateExerciseId: string;
   previous: PreviousResult | null;
+  proposal: PlayerProposal | null;
 };
 
 export type PlayerReadModel = {
   logId: string;
+  scheduledSessionId: string;
+  templateId: string | null;
   startedAt: string;
   workoutName: string;
   exercises: PlayerExerciseView[];
@@ -165,6 +256,7 @@ export type LogSetInput = {
   repetitions: number | null;
   effortScore: number | null;
   discomfortScore: number | null;
+  techniqueControlled: boolean | null;
   userId: string;
   clientOperationId: string;
   completedAtIso: string;
@@ -182,8 +274,41 @@ function toLoggedSet(set: PersistedSet): LoggedSet {
     exerciseId: set.exerciseId,
     repetitions: set.repetitions,
     setNumber: set.setNumber,
+    techniqueControlled: set.techniqueControlled,
     weightKg: set.weightKg,
   };
+}
+
+// Group flat exposure-set rows into exposures per exercise, ordered most recent
+// first (by the workout_log's completion time), for evaluateStrengthProgression.
+function groupExposures(
+  rows: readonly RawExposureSet[],
+  exerciseId: string,
+): Exposure[] {
+  const byLog = new Map<
+    string,
+    { exposureAt: string; sets: Exposure['sets'] }
+  >();
+  for (const row of rows) {
+    if (row.exerciseId !== exerciseId) {
+      continue;
+    }
+    const group = byLog.get(row.workoutLogId) ?? {
+      exposureAt: row.exposureAt,
+      sets: [],
+    };
+    group.sets.push({
+      discomfortScore: row.discomfortScore,
+      effortScore: row.effortScore,
+      repetitions: row.repetitions,
+      techniqueControlled: row.techniqueControlled,
+      weightKg: row.weightKg,
+    });
+    byLog.set(row.workoutLogId, group);
+  }
+  return [...byLog.values()]
+    .sort((a, b) => b.exposureAt.localeCompare(a.exposureAt))
+    .map((group) => ({ sets: group.sets }));
 }
 
 export function createWorkoutPlayerRepository(deps: {
@@ -219,6 +344,7 @@ export function createWorkoutPlayerRepository(deps: {
         repetitions: set.repetitions,
         setNumber: set.setNumber,
         synced: true,
+        techniqueControlled: set.techniqueControlled,
         weightKg: set.weightKg,
         workoutLogId: logId,
       });
@@ -256,6 +382,7 @@ export function createWorkoutPlayerRepository(deps: {
       exerciseLogId,
       repetitions: set.repetitions,
       setNumber: set.setNumber,
+      techniqueControlled: set.techniqueControlled,
       userId,
       weightKg: set.weightKg,
     });
@@ -354,6 +481,27 @@ export function createWorkoutPlayerRepository(deps: {
         priorByExercise.set(prior.exerciseId, list);
       }
 
+      // The newest 'proposed' progression proposal per template exercise, if any.
+      // Offline or on error this simply yields no proposal — never a load failure.
+      const proposalsResult = await backend.fetchLatestProposals({
+        templateExerciseIds: rawExercises.map(
+          (exercise) => exercise.templateExerciseId,
+        ),
+      });
+      const proposalByTemplateExercise = new Map<string, PlayerProposal>();
+      for (const proposal of proposalsResult.data ?? []) {
+        // Newest-first from the backend; keep the first seen per template exercise.
+        if (!proposalByTemplateExercise.has(proposal.templateExerciseId)) {
+          proposalByTemplateExercise.set(proposal.templateExerciseId, {
+            currentWeightKg: proposal.currentWeightKg,
+            decision: proposal.decision,
+            id: proposal.id,
+            proposedWeightKg: proposal.proposedWeightKg,
+            reasons: proposal.reasons,
+          });
+        }
+      }
+
       const exercises: PlayerExerciseView[] = rawExercises.map((exercise) => ({
         exerciseId: exercise.exerciseId,
         name: exercise.name,
@@ -361,11 +509,14 @@ export function createWorkoutPlayerRepository(deps: {
         previous: pickPreviousResult(
           priorByExercise.get(exercise.exerciseId) ?? [],
         ),
+        proposal:
+          proposalByTemplateExercise.get(exercise.templateExerciseId) ?? null,
         repMax: exercise.repMax,
         repMin: exercise.repMin,
         restSeconds: exercise.restSeconds,
         slug: exercise.slug,
         targetSets: exercise.targetSets,
+        templateExerciseId: exercise.templateExerciseId,
       }));
 
       const recordedResult = await backend.fetchRecordedSets(logId);
@@ -382,7 +533,9 @@ export function createWorkoutPlayerRepository(deps: {
           exercises,
           loggedSets,
           logId,
+          scheduledSessionId: input.scheduledSessionId,
           startedAt: log.started_at,
+          templateId,
           workoutName: templateResult.data?.name ?? 'Strength session',
         },
         status: 'ready',
@@ -400,6 +553,7 @@ export function createWorkoutPlayerRepository(deps: {
         repetitions: input.repetitions,
         setNumber: input.setNumber,
         synced: false,
+        techniqueControlled: input.techniqueControlled,
         weightKg: input.weightKg,
         workoutLogId: input.logId,
       };
@@ -420,6 +574,8 @@ export function createWorkoutPlayerRepository(deps: {
     },
 
     async completeWorkout(input: {
+      scheduledSessionId: string;
+      templateId: string | null;
       logId: string;
       userId: string;
       sessionEffort: number | null;
@@ -442,9 +598,106 @@ export function createWorkoutPlayerRepository(deps: {
         return { message: OFFLINE_COMPLETE, success: false };
       }
       await store.clearWorkout(input.logId);
+
+      // Close the originating scheduled session so the weekly planner no longer
+      // shows a finished session as planned (the roadmap-11 gap). Best-effort: a
+      // failure here must not fail an already-completed workout.
+      const closed = await backend.updateScheduledSessionStatus({
+        scheduledSessionId: input.scheduledSessionId,
+        status: 'completed',
+        userId: input.userId,
+      });
+      if (closed.error) {
+        logNonBlocking('closing the scheduled session', closed.error);
+      }
+
+      // Evaluate strength progression and store one proposal per exercise. Wrapped
+      // so any failure is logged and swallowed — it never blocks completion.
+      await evaluateAndStoreProposals(input);
+
       return { success: true, syncedCount };
     },
+
+    // Record the user's explicit decision on a proposal. Accept prefills the
+    // suggested weight in the UI; dismiss ensures it never reappears (only
+    // 'proposed' rows are fetched). Both stamp decided_at.
+    async decideProposal(decision: {
+      proposalId: string;
+      userId: string;
+      status: 'accepted' | 'dismissed';
+      decidedAtIso: string;
+    }): Promise<{ ok: boolean }> {
+      const { error } = await backend.decideProposal(decision);
+      return { ok: !error };
+    },
   };
+
+  // Evaluate each exercise in the just-completed session and insert its proposal.
+  // Never throws: a strength progression failure must not undo a saved workout.
+  async function evaluateAndStoreProposals(input: {
+    scheduledSessionId: string;
+    templateId: string | null;
+    logId: string;
+    userId: string;
+  }): Promise<void> {
+    try {
+      if (!input.templateId) {
+        return;
+      }
+      const configs = await backend.fetchTemplateExercises(input.templateId);
+      const rawConfigs = configs.data ?? [];
+      if (configs.error || rawConfigs.length === 0) {
+        return;
+      }
+      const exposuresResult = await backend.fetchCompletedExposures({
+        exerciseIds: rawConfigs.map((config) => config.exerciseId),
+      });
+      if (exposuresResult.error) {
+        logNonBlocking('reading exposures', exposuresResult.error);
+        return;
+      }
+      const exposureRows = exposuresResult.data ?? [];
+      for (const config of rawConfigs) {
+        const exposures = groupExposures(exposureRows, config.exerciseId);
+        const decision = evaluateStrengthProgression(
+          {
+            repMax: config.repMax,
+            repMin: config.repMin,
+            singleExposureProgression: config.singleExposureProgression,
+            targetSets: config.targetSets,
+            weightIncrementKg: config.weightIncrementKg,
+          },
+          exposures,
+        );
+        const insert = await backend.insertProgressionProposal({
+          currentWeightKg: decision.currentWeightKg,
+          decision: decision.decision,
+          exerciseId: config.exerciseId,
+          inputs: decision.inputs,
+          proposedWeightKg: decision.proposedWeightKg,
+          reasons: decision.reasons,
+          ruleVersion: decision.ruleVersion,
+          templateExerciseId: config.templateExerciseId,
+          userId: input.userId,
+          workoutLogId: input.logId,
+        });
+        if (insert.error) {
+          logNonBlocking('storing a progression proposal', insert.error);
+        }
+      }
+    } catch (error) {
+      logNonBlocking('evaluating strength progression', error);
+    }
+  }
+}
+
+// A non-fatal, non-blocking log for the progression side effects. Kept quiet in
+// production; surfaced only in development so a broken evaluation is noticed
+// without ever failing a completed workout.
+function logNonBlocking(context: string, error: unknown): void {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.warn(`[workout] ${context} failed (non-blocking):`, error);
+  }
 }
 
 export type WorkoutPlayerRepository = ReturnType<
@@ -454,13 +707,32 @@ export type WorkoutPlayerRepository = ReturnType<
 // --- Supabase adapter ---------------------------------------------------------
 
 type NestedExerciseRow = {
+  id: string;
   exercise_id: string;
   exercise_order: number;
   target_sets: number;
   rep_min: number | null;
   rep_max: number | null;
   rest_seconds: number | null;
+  weight_increment_kg: number | null;
+  single_exposure_progression: boolean;
   exercises: { slug: string; name: string } | null;
+};
+
+type NestedExposureRow = {
+  weight_kg: number | null;
+  repetitions: number | null;
+  effort_score: number | null;
+  discomfort_score: number | null;
+  technique_controlled: boolean | null;
+  exercise_logs: {
+    exercise_id: string;
+    workout_log_id: string;
+    workout_logs: {
+      completed_at: string | null;
+      started_at: string;
+    } | null;
+  } | null;
 };
 
 type NestedPriorRow = {
@@ -598,7 +870,7 @@ export function createSupabaseWorkoutPlayerBackend(
       const sets = await client
         .from('set_logs')
         .select(
-          'exercise_log_id, set_number, weight_kg, repetitions, effort_score, discomfort_score, client_operation_id, completed_at',
+          'exercise_log_id, set_number, weight_kg, repetitions, effort_score, discomfort_score, technique_controlled, client_operation_id, completed_at',
         )
         .in(
           'exercise_log_id',
@@ -619,9 +891,54 @@ export function createSupabaseWorkoutPlayerBackend(
             exerciseOrder: parent?.exerciseOrder ?? 1,
             repetitions: row.repetitions,
             setNumber: row.set_number,
+            techniqueControlled: row.technique_controlled,
             weightKg: row.weight_kg,
           };
         }),
+        error: null,
+      };
+    },
+
+    async fetchCompletedExposures({ exerciseIds }) {
+      if (exerciseIds.length === 0) {
+        return { data: [], error: null };
+      }
+      const { data, error } = await client
+        .from('set_logs')
+        .select(
+          'weight_kg, repetitions, effort_score, discomfort_score, technique_controlled, exercise_logs!inner(exercise_id, workout_log_id, workout_logs!inner(completed_at, started_at, status))',
+        )
+        .in('exercise_logs.exercise_id', exerciseIds)
+        .eq('exercise_logs.workout_logs.status', 'completed');
+      if (error) {
+        return { data: null, error };
+      }
+      const rows = (data ?? []) as unknown as NestedExposureRow[];
+      return {
+        data: rows
+          .filter(
+            (row) =>
+              row.exercise_logs !== null &&
+              row.exercise_logs.workout_logs !== null,
+          )
+          .map((row) => {
+            const parent = row.exercise_logs as NonNullable<
+              NestedExposureRow['exercise_logs']
+            >;
+            const log = parent.workout_logs as NonNullable<
+              typeof parent.workout_logs
+            >;
+            return {
+              discomfortScore: row.discomfort_score,
+              effortScore: row.effort_score,
+              exerciseId: parent.exercise_id,
+              exposureAt: log.completed_at ?? log.started_at,
+              repetitions: row.repetitions,
+              techniqueControlled: row.technique_controlled,
+              weightKg: row.weight_kg,
+              workoutLogId: parent.workout_log_id,
+            };
+          }),
         error: null,
       };
     },
@@ -648,7 +965,7 @@ export function createSupabaseWorkoutPlayerBackend(
       const { data, error } = await client
         .from('workout_template_exercises')
         .select(
-          'exercise_id, exercise_order, target_sets, rep_min, rep_max, rest_seconds, exercises!inner(slug, name)',
+          'id, exercise_id, exercise_order, target_sets, rep_min, rep_max, rest_seconds, weight_increment_kg, single_exposure_progression, exercises!inner(slug, name)',
         )
         .eq('template_id', templateId)
         .order('exercise_order', { ascending: true });
@@ -664,8 +981,11 @@ export function createSupabaseWorkoutPlayerBackend(
           repMax: row.rep_max,
           repMin: row.rep_min,
           restSeconds: row.rest_seconds,
+          singleExposureProgression: row.single_exposure_progression,
           slug: row.exercises?.slug ?? '',
           targetSets: row.target_sets,
+          templateExerciseId: row.id,
+          weightIncrementKg: row.weight_increment_kg,
         })),
         error: null,
       };
@@ -692,6 +1012,7 @@ export function createSupabaseWorkoutPlayerBackend(
         exercise_log_id: row.exerciseLogId,
         repetitions: row.repetitions,
         set_number: row.setNumber,
+        technique_controlled: row.techniqueControlled,
         user_id: row.userId,
         weight_kg: row.weightKg,
       });
@@ -704,6 +1025,73 @@ export function createSupabaseWorkoutPlayerBackend(
         return { duplicate: false, error };
       }
       return { duplicate: false, error: null };
+    },
+
+    async updateScheduledSessionStatus({ scheduledSessionId, status, userId }) {
+      const { error } = await client
+        .from('scheduled_sessions')
+        .update({ source: 'user', status })
+        .eq('id', scheduledSessionId)
+        .eq('user_id', userId);
+      return { error };
+    },
+
+    async insertProgressionProposal(row) {
+      type ProposalInsert =
+        Database['public']['Tables']['progression_proposals']['Insert'];
+      const { error } = await client.from('progression_proposals').insert({
+        current_weight_kg: row.currentWeightKg,
+        decision: row.decision,
+        exercise_id: row.exerciseId,
+        inputs: row.inputs as NonNullable<ProposalInsert['inputs']>,
+        proposed_weight_kg: row.proposedWeightKg,
+        reasons: row.reasons as unknown as NonNullable<
+          ProposalInsert['reasons']
+        >,
+        rule_version: row.ruleVersion,
+        template_exercise_id: row.templateExerciseId,
+        user_id: row.userId,
+        workout_log_id: row.workoutLogId,
+      });
+      return { error };
+    },
+
+    async fetchLatestProposals({ templateExerciseIds }) {
+      if (templateExerciseIds.length === 0) {
+        return { data: [], error: null };
+      }
+      const { data, error } = await client
+        .from('progression_proposals')
+        .select(
+          'id, template_exercise_id, decision, proposed_weight_kg, current_weight_kg, reasons',
+        )
+        .in('template_exercise_id', templateExerciseIds)
+        .eq('status', 'proposed')
+        .order('created_at', { ascending: false });
+      if (error) {
+        return { data: null, error };
+      }
+      return {
+        data: (data ?? []).map((row) => ({
+          currentWeightKg: row.current_weight_kg,
+          decision: row.decision as DecisionCode,
+          id: row.id,
+          proposedWeightKg: row.proposed_weight_kg,
+          reasons: (row.reasons as ProposalReason[] | null) ?? [],
+          templateExerciseId: row.template_exercise_id,
+        })),
+        error: null,
+      };
+    },
+
+    async decideProposal({ decidedAtIso, proposalId, status, userId }) {
+      const { error } = await client
+        .from('progression_proposals')
+        .update({ decided_at: decidedAtIso, status })
+        .eq('id', proposalId)
+        .eq('user_id', userId)
+        .eq('status', 'proposed');
+      return { error };
     },
   };
 }

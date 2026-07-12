@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   createWorkoutPlayerRepository,
+  type ProgressionProposalRow,
   type WorkoutPlayerBackend,
 } from '@/features/workouts/workoutPlayerRepository';
 import { createMemoryWorkoutStore } from '@/lib/persistence/activeWorkoutStore';
@@ -17,14 +18,37 @@ function createFake(
     sessionType?: string;
     templateId?: string | null;
     inProgressLogId?: string | null;
+    // Completed exposures returned to the progression evaluator on completion.
+    exposures?: {
+      exerciseId: string;
+      workoutLogId: string;
+      exposureAt: string;
+      weightKg: number | null;
+      repetitions: number | null;
+      effortScore: number | null;
+      discomfortScore: number | null;
+      techniqueControlled: boolean | null;
+    }[];
+    failProposalInsert?: boolean;
+    latestProposals?: {
+      id: string;
+      templateExerciseId: string;
+      decision: 'increase' | 'hold' | 'reduce_or_substitute';
+      proposedWeightKg: number | null;
+      currentWeightKg: number | null;
+      reasons: { code: string; message: string }[];
+    }[];
   } = {},
 ) {
   const state = {
     completed: false,
     createdLogs: 0,
+    decided: [] as { proposalId: string; status: string }[],
     exerciseLogSeq: 0,
     exerciseLogs: new Map<string, string>(),
     online: options.online ?? true,
+    proposals: [] as ProgressionProposalRow[],
+    scheduledSessionStatus: null as string | null,
     sets: [] as {
       clientOperationId: string;
       exerciseLogId: string;
@@ -100,12 +124,36 @@ function createFake(
             repMax: 12,
             repMin: 8,
             restSeconds: 90,
+            singleExposureProgression: false,
             slug: 'leg-press',
             targetSets: 2,
+            templateExerciseId: 'te-1',
+            weightIncrementKg: 2.5,
           },
         ],
         error: null,
       };
+    },
+    async fetchCompletedExposures() {
+      return { data: options.exposures ?? [], error: null };
+    },
+    async insertProgressionProposal(row) {
+      if (options.failProposalInsert) {
+        return { error: { message: 'insert failed' } };
+      }
+      state.proposals.push(row);
+      return { error: null };
+    },
+    async fetchLatestProposals() {
+      return { data: options.latestProposals ?? [], error: null };
+    },
+    async decideProposal({ proposalId, status }) {
+      state.decided.push({ proposalId, status });
+      return { error: null };
+    },
+    async updateScheduledSessionStatus({ status }) {
+      state.scheduledSessionStatus = status;
+      return { error: null };
     },
     async findInProgressLog() {
       const id =
@@ -154,8 +202,19 @@ const logSetInput = (overrides: Record<string, unknown> = {}) => ({
   logId: 'wl-1',
   repetitions: 10,
   setNumber: 1,
+  techniqueControlled: true,
   userId: 'user-1',
   weightKg: 20,
+  ...overrides,
+});
+
+const completeInput = (overrides: Record<string, unknown> = {}) => ({
+  completedAtIso: '2026-07-12T10:30:00.000Z',
+  logId: 'wl-1',
+  scheduledSessionId: 'sess-1',
+  sessionEffort: null,
+  templateId: 'tmpl-1',
+  userId: 'user-1',
   ...overrides,
 });
 
@@ -234,6 +293,7 @@ describe('workout player repository — no duplicate sets on replay', () => {
       repetitions: 10,
       setNumber: 1,
       synced: false,
+      techniqueControlled: true,
       weightKg: 20,
       workoutLogId: 'wl-1',
     });
@@ -309,12 +369,7 @@ describe('workout player repository — completing', () => {
     const repo = createWorkoutPlayerRepository({ backend, store });
     await repo.logSet(logSetInput({ clientOperationId: 'op-1' }));
 
-    const result = await repo.completeWorkout({
-      completedAtIso: '2026-07-12T10:30:00.000Z',
-      logId: 'wl-1',
-      sessionEffort: null,
-      userId: 'user-1',
-    });
+    const result = await repo.completeWorkout(completeInput());
 
     expect(result.success).toBe(true);
     expect(state.completed).toBe(true);
@@ -328,16 +383,94 @@ describe('workout player repository — completing', () => {
     const repo = createWorkoutPlayerRepository({ backend, store });
     await repo.logSet(logSetInput({ clientOperationId: 'op-1' }));
 
-    const result = await repo.completeWorkout({
-      completedAtIso: '2026-07-12T10:30:00.000Z',
-      logId: 'wl-1',
-      sessionEffort: null,
-      userId: 'user-1',
-    });
+    const result = await repo.completeWorkout(completeInput());
 
     expect(result.success).toBe(false);
     expect(state.completed).toBe(false);
     // The set is kept locally, not lost.
     expect(await store.loadSets('wl-1')).toHaveLength(1);
+  });
+
+  it('closes the originating scheduled session and stores one proposal per exercise', async () => {
+    const store = createMemoryWorkoutStore();
+    const { backend, state } = createFake({ online: true });
+    const repo = createWorkoutPlayerRepository({ backend, store });
+    await repo.logSet(logSetInput({ clientOperationId: 'op-1' }));
+
+    const result = await repo.completeWorkout(completeInput());
+
+    expect(result.success).toBe(true);
+    // The roadmap-11 gap is closed: the planner will no longer show it as planned.
+    expect(state.scheduledSessionStatus).toBe('completed');
+    // One proposal for the single template exercise (ex-1).
+    expect(state.proposals).toHaveLength(1);
+    expect(state.proposals[0]?.exerciseId).toBe('ex-1');
+    expect(state.proposals[0]?.templateExerciseId).toBe('te-1');
+  });
+
+  it('proposes an increase when two completed exposures qualify', async () => {
+    const store = createMemoryWorkoutStore();
+    // Two prior qualifying exposures for ex-1 (top of range, controlled, easy).
+    const qualifyingSet = (workoutLogId: string, exposureAt: string) => ({
+      discomfortScore: 1,
+      effortScore: 7,
+      exerciseId: 'ex-1',
+      exposureAt,
+      repetitions: 12,
+      techniqueControlled: true,
+      weightKg: 40,
+      workoutLogId,
+    });
+    const { backend, state } = createFake({
+      exposures: [
+        qualifyingSet('wl-1', '2026-07-12T10:00:00.000Z'),
+        qualifyingSet('wl-1', '2026-07-12T10:05:00.000Z'),
+        qualifyingSet('wl-0', '2026-07-05T10:00:00.000Z'),
+        qualifyingSet('wl-0', '2026-07-05T10:05:00.000Z'),
+      ],
+      online: true,
+    });
+    const repo = createWorkoutPlayerRepository({ backend, store });
+    await repo.logSet(logSetInput({ clientOperationId: 'op-1' }));
+
+    await repo.completeWorkout(completeInput());
+
+    expect(state.proposals[0]?.decision).toBe('increase');
+    expect(state.proposals[0]?.proposedWeightKg).toBe(42.5);
+  });
+
+  it('still completes the workout when storing proposals fails', async () => {
+    const store = createMemoryWorkoutStore();
+    const { backend, state } = createFake({
+      failProposalInsert: true,
+      online: true,
+    });
+    const repo = createWorkoutPlayerRepository({ backend, store });
+    await repo.logSet(logSetInput({ clientOperationId: 'op-1' }));
+
+    const result = await repo.completeWorkout(completeInput());
+
+    // A progression failure never undoes a saved, completed workout.
+    expect(result.success).toBe(true);
+    expect(state.completed).toBe(true);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  it('records an accept/dismiss decision on a proposal', async () => {
+    const store = createMemoryWorkoutStore();
+    const { backend, state } = createFake({ online: true });
+    const repo = createWorkoutPlayerRepository({ backend, store });
+
+    const accepted = await repo.decideProposal({
+      decidedAtIso: '2026-07-12T11:00:00.000Z',
+      proposalId: 'prop-1',
+      status: 'accepted',
+      userId: 'user-1',
+    });
+
+    expect(accepted.ok).toBe(true);
+    expect(state.decided).toEqual([
+      { proposalId: 'prop-1', status: 'accepted' },
+    ]);
   });
 });

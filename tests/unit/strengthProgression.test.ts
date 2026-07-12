@@ -138,7 +138,9 @@ describe('strength progression — effort boundary', () => {
       goodExposure(),
     ]);
     expect(result.decision).toBe('hold');
-    expect(result.reasons.map((reason) => reason.code)).toContain('effort-high');
+    expect(result.reasons.map((reason) => reason.code)).toContain(
+      'effort-high',
+    );
   });
 });
 

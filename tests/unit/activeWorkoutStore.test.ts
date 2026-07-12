@@ -15,6 +15,7 @@ const persisted = (overrides: Partial<PersistedSet> = {}): PersistedSet => ({
   repetitions: 10,
   setNumber: 1,
   synced: false,
+  techniqueControlled: true,
   weightKg: 20,
   workoutLogId: 'wl-1',
   ...overrides,
