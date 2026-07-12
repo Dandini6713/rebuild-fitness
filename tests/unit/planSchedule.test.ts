@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   DEFAULT_WEEKLY_PATTERN,
   describeSessionType,
+  enumerateWeekDates,
   formatPlanDate,
   PLAN_WEEK_COUNT,
   resolvePlanStartDate,
@@ -54,6 +55,36 @@ describe('describeSessionType', () => {
 
   it('humanises an unknown session type instead of showing a slug', () => {
     expect(describeSessionType('run_walk')).toBe('run walk');
+  });
+});
+
+describe('enumerateWeekDates', () => {
+  it('returns the seven inclusive dates from the given Monday', () => {
+    expect(enumerateWeekDates('2026-08-03')).toEqual([
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+      '2026-08-06',
+      '2026-08-07',
+      '2026-08-08',
+      '2026-08-09',
+    ]);
+  });
+
+  it('crosses a month boundary without shifting days', () => {
+    expect(enumerateWeekDates('2026-08-31')).toEqual([
+      '2026-08-31',
+      '2026-09-01',
+      '2026-09-02',
+      '2026-09-03',
+      '2026-09-04',
+      '2026-09-05',
+      '2026-09-06',
+    ]);
+  });
+
+  it('rejects an unparseable date', () => {
+    expect(() => enumerateWeekDates('not-a-date')).toThrow();
   });
 });
 
