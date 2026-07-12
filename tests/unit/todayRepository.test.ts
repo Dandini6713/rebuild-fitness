@@ -1,0 +1,205 @@
+import { describe, expect, it, jest } from '@jest/globals';
+
+import {
+  createTodayRepository,
+  type TodayBackend,
+} from '@/features/today/todayRepository';
+
+const TODAY = '2026-07-15'; // Wednesday; week runs 2026-07-13 to 2026-07-19.
+
+function backend(overrides: Partial<TodayBackend>): TodayBackend {
+  return {
+    fetchWeekSessions: jest.fn<TodayBackend['fetchWeekSessions']>(async () => ({
+      data: [],
+      error: null,
+    })),
+    fetchWeekLogs: jest.fn<TodayBackend['fetchWeekLogs']>(async () => ({
+      data: [],
+      error: null,
+    })),
+    fetchTemplates: jest.fn<TodayBackend['fetchTemplates']>(async () => ({
+      data: [],
+      error: null,
+    })),
+    fetchCurrentTargets: jest.fn<TodayBackend['fetchCurrentTargets']>(
+      async () => ({ data: [], error: null }),
+    ),
+    startSession: jest.fn<TodayBackend['startSession']>(async () => ({
+      data: { id: 'log-1' },
+      error: null,
+    })),
+    ...overrides,
+  };
+}
+
+describe('today repository — load', () => {
+  it('surfaces an error when the session read fails', async () => {
+    const repo = createTodayRepository(
+      backend({
+        fetchWeekSessions: async () => ({
+          data: null,
+          error: { message: 'network' },
+        }),
+      }),
+    );
+    const result = await repo.load(TODAY);
+    expect(result.status).toBe('error');
+  });
+
+  it('reports none when nothing is scheduled today', async () => {
+    const repo = createTodayRepository(backend({}));
+    const result = await repo.load(TODAY);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') {
+      return;
+    }
+    expect(result.data.session).toEqual({ kind: 'none' });
+    expect(result.data.nutrition).toEqual({ kind: 'no-target' });
+    expect(result.data.adherence.percent).toBeNull();
+  });
+
+  it('resolves today from the week and attaches its template name', async () => {
+    const fetchTemplates = jest.fn<TodayBackend['fetchTemplates']>(
+      async () => ({
+        data: [{ id: 't-a', name: 'Strength A' }],
+        error: null,
+      }),
+    );
+    const repo = createTodayRepository(
+      backend({
+        fetchWeekSessions: async () => ({
+          data: [
+            {
+              id: 's-mon',
+              scheduled_date: '2026-07-13',
+              session_type: 'strength',
+              status: 'planned',
+              template_id: 't-a',
+            },
+            {
+              id: 's-wed',
+              scheduled_date: '2026-07-15',
+              session_type: 'achilles',
+              status: 'planned',
+              template_id: null,
+            },
+          ],
+          error: null,
+        }),
+        fetchTemplates,
+      }),
+    );
+
+    const result = await repo.load(TODAY);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') {
+      return;
+    }
+    // Today is Wednesday's Achilles session (no template), active and not started.
+    expect(result.data.session).toEqual({
+      inProgress: false,
+      kind: 'active',
+      session: {
+        id: 's-wed',
+        scheduledDate: '2026-07-15',
+        sessionType: 'achilles',
+        status: 'planned',
+        templateName: null,
+      },
+    });
+    // Templates are only fetched for today's session, and only when it has one.
+    expect(fetchTemplates).not.toHaveBeenCalled();
+  });
+
+  it('marks today completed when a matching log is completed', async () => {
+    const repo = createTodayRepository(
+      backend({
+        fetchWeekSessions: async () => ({
+          data: [
+            {
+              id: 's-wed',
+              scheduled_date: '2026-07-15',
+              session_type: 'strength',
+              status: 'planned',
+              template_id: null,
+            },
+          ],
+          error: null,
+        }),
+        fetchWeekLogs: async () => ({
+          data: [
+            { id: 'l-1', scheduled_session_id: 's-wed', status: 'completed' },
+          ],
+          error: null,
+        }),
+      }),
+    );
+
+    const result = await repo.load(TODAY);
+    if (result.status !== 'ready') {
+      throw new Error('expected ready');
+    }
+    expect(result.data.session.kind).toBe('completed');
+    expect(result.data.adherence).toEqual({
+      completed: 1,
+      percent: 100,
+      planned: 1,
+    });
+  });
+
+  it('builds the current nutrition target with no intake yet', async () => {
+    const repo = createTodayRepository(
+      backend({
+        fetchCurrentTargets: async () => ({
+          data: [
+            { calories: 2200, effective_from: '2026-06-01', protein_g: 140 },
+            { calories: 2100, effective_from: '2026-07-01', protein_g: 145 },
+          ],
+          error: null,
+        }),
+      }),
+    );
+
+    const result = await repo.load(TODAY);
+    if (result.status !== 'ready') {
+      throw new Error('expected ready');
+    }
+    expect(result.data.nutrition).toEqual({
+      calories: 2100,
+      caloriesProgress: null,
+      effectiveFrom: '2026-07-01',
+      kind: 'target',
+      proteinG: 145,
+      proteinProgress: null,
+    });
+  });
+});
+
+describe('today repository — start session', () => {
+  it('returns the new log id on success', async () => {
+    const repo = createTodayRepository(backend({}));
+    const result = await repo.startSession({
+      scheduledSessionId: 's-wed',
+      startedAtIso: '2026-07-15T08:00:00.000Z',
+      userId: 'user-1',
+    });
+    expect(result).toEqual({ logId: 'log-1', success: true });
+  });
+
+  it('surfaces a friendly error when the write fails', async () => {
+    const repo = createTodayRepository(
+      backend({
+        startSession: async () => ({ data: null, error: { message: 'boom' } }),
+      }),
+    );
+    const result = await repo.startSession({
+      scheduledSessionId: 's-wed',
+      startedAtIso: '2026-07-15T08:00:00.000Z',
+      userId: 'user-1',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.message).toContain('could not start');
+    }
+  });
+});

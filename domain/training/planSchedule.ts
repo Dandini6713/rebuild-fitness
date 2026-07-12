@@ -78,6 +78,41 @@ export function resolvePlanStartDate(confirmedAtIso: string): string {
   return start.toISOString().slice(0, 10);
 }
 
+// The Monday–Sunday range containing a plain calendar date, returned as inclusive
+// YYYY-MM-DD bounds. Today's queries and the weekly adherence figure are scoped to
+// this window. Parsed at UTC midnight so a plain date's weekday never shifts with
+// the device time zone (mirrors formatPlanDate). The persona week starts on Monday
+// (Strength A), so the range does too.
+export function currentWeekRange(isoDate: string): {
+  end: string;
+  start: string;
+} {
+  const base = new Date(`${isoDate.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(base.getTime())) {
+    throw new Error(`Invalid date: ${isoDate}`);
+  }
+  // getUTCDay: 0 Sunday … 6 Saturday. Days since Monday is (day + 6) mod 7.
+  const daysSinceMonday = (base.getUTCDay() + 6) % 7;
+  const start = new Date(
+    Date.UTC(
+      base.getUTCFullYear(),
+      base.getUTCMonth(),
+      base.getUTCDate() - daysSinceMonday,
+    ),
+  );
+  const end = new Date(
+    Date.UTC(
+      start.getUTCFullYear(),
+      start.getUTCMonth(),
+      start.getUTCDate() + 6,
+    ),
+  );
+  return {
+    end: end.toISOString().slice(0, 10),
+    start: start.toISOString().slice(0, 10),
+  };
+}
+
 const WEEKDAY_NAMES = [
   'Sunday',
   'Monday',
