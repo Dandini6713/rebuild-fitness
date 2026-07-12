@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 
 import {
@@ -12,6 +13,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { SupabaseConnectionStatus } from '@/features/diagnostics/SupabaseConnectionStatus';
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const { signOut } = useAuth();
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -32,6 +34,17 @@ export default function SettingsScreen() {
         description="Profile, notifications and privacy settings open up as the app is built out. Signing out already works."
         title="Rebuild"
       />
+      <SectionHeader
+        description="Plain-English guides to every exercise in your strength sessions: how to set up, move, breathe and stay safe."
+        title="Learn"
+      />
+      <Card>
+        <SecondaryButton
+          accessibilityHint="Opens the exercise guide."
+          label="Exercise guide"
+          onPress={() => router.push('/more/exercises')}
+        />
+      </Card>
       <Card>
         <StatusBadge label="Private beta" tone="info" />
         <SecondaryButton disabled label="Profile and goals" />
