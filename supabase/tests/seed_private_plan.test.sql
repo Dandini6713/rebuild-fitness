@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(18);
+select plan(22);
 
 -- The seed references the exercise catalogue by slug. `supabase test db` does
 -- not load seed.sql, so insert the twelve exercises the templates need first.
@@ -103,6 +103,42 @@ select is(
    where user_id = '11111111-1111-4111-8111-111111111111'),
   12,
   'the two templates hold twelve exercises in total'
+);
+
+-- Roadmap 12: the weighted movements carry their configured increment, the calf
+-- raises a smaller one, and the two unloaded/time-held movements stay null.
+select is(
+  (select count(*)::integer from public.workout_template_exercises
+   where user_id = '11111111-1111-4111-8111-111111111111'
+     and weight_increment_kg = 2.5),
+  8,
+  'eight movements carry a 2.5 kg weight increment'
+);
+
+select is(
+  (select count(*)::integer from public.workout_template_exercises
+   where user_id = '11111111-1111-4111-8111-111111111111'
+     and weight_increment_kg = 1.0),
+  2,
+  'the two calf raises carry a 1.0 kg weight increment'
+);
+
+select is(
+  (select count(*)::integer from public.workout_template_exercises wte
+   join public.exercises e on e.id = wte.exercise_id
+   where wte.user_id = '11111111-1111-4111-8111-111111111111'
+     and wte.weight_increment_kg is null
+     and e.slug in ('dead-bug', 'farmer-carry')),
+  2,
+  'the dead bug and farmer carry have no weight increment'
+);
+
+select is(
+  (select count(*)::integer from public.workout_template_exercises
+   where user_id = '11111111-1111-4111-8111-111111111111'
+     and single_exposure_progression),
+  0,
+  'no seeded exercise is configured for single-exposure progression'
 );
 
 -- Second seed with no reset must be an idempotent no-op.

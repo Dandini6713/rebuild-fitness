@@ -539,6 +539,79 @@ export type Database = {
         }
         Relationships: []
       }
+      progression_proposals: {
+        Row: {
+          created_at: string
+          current_weight_kg: number | null
+          decided_at: string | null
+          decision: string
+          exercise_id: string
+          id: string
+          inputs: Json
+          proposed_weight_kg: number | null
+          reasons: Json
+          rule_version: string
+          status: string
+          template_exercise_id: string
+          user_id: string
+          workout_log_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          current_weight_kg?: number | null
+          decided_at?: string | null
+          decision: string
+          exercise_id: string
+          id?: string
+          inputs?: Json
+          proposed_weight_kg?: number | null
+          reasons?: Json
+          rule_version: string
+          status?: string
+          template_exercise_id: string
+          user_id: string
+          workout_log_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          current_weight_kg?: number | null
+          decided_at?: string | null
+          decision?: string
+          exercise_id?: string
+          id?: string
+          inputs?: Json
+          proposed_weight_kg?: number | null
+          reasons?: Json
+          rule_version?: string
+          status?: string
+          template_exercise_id?: string
+          user_id?: string
+          workout_log_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "progression_proposals_exercise_id_fkey"
+            columns: ["exercise_id"]
+            isOneToOne: false
+            referencedRelation: "exercises"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "progression_proposals_template_exercise_id_fkey"
+            columns: ["template_exercise_id"]
+            isOneToOne: false
+            referencedRelation: "workout_template_exercises"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "progression_proposals_workout_log_id_user_id_fkey"
+            columns: ["workout_log_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "workout_logs"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
       readiness_checkins: {
         Row: {
           checkin_type: Database["public"]["Enums"]["checkin_type"]
@@ -680,6 +753,7 @@ export type Database = {
           id: string
           repetitions: number | null
           set_number: number
+          technique_controlled: boolean | null
           user_id: string
           weight_kg: number | null
         }
@@ -694,6 +768,7 @@ export type Database = {
           id?: string
           repetitions?: number | null
           set_number: number
+          technique_controlled?: boolean | null
           user_id: string
           weight_kg?: number | null
         }
@@ -708,6 +783,7 @@ export type Database = {
           id?: string
           repetitions?: number | null
           set_number?: number
+          technique_controlled?: boolean | null
           user_id?: string
           weight_kg?: number | null
         }
@@ -849,10 +925,12 @@ export type Database = {
           rep_max: number | null
           rep_min: number | null
           rest_seconds: number | null
+          single_exposure_progression: boolean
           substitution_group: string | null
           target_sets: number
           template_id: string
           user_id: string | null
+          weight_increment_kg: number | null
         }
         Insert: {
           created_at?: string
@@ -862,10 +940,12 @@ export type Database = {
           rep_max?: number | null
           rep_min?: number | null
           rest_seconds?: number | null
+          single_exposure_progression?: boolean
           substitution_group?: string | null
           target_sets: number
           template_id: string
           user_id?: string | null
+          weight_increment_kg?: number | null
         }
         Update: {
           created_at?: string
@@ -875,10 +955,12 @@ export type Database = {
           rep_max?: number | null
           rep_min?: number | null
           rest_seconds?: number | null
+          single_exposure_progression?: boolean
           substitution_group?: string | null
           target_sets?: number
           template_id?: string
           user_id?: string | null
+          weight_increment_kg?: number | null
         }
         Relationships: [
           {
