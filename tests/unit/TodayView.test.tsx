@@ -19,10 +19,12 @@ const baseModel = (
 function renderView(
   state: TodayViewState,
   onStart: (scheduledSessionId: string) => void = noop,
+  onOpenPlayer: (scheduledSessionId: string) => void = noop,
 ) {
   return render(
     <TodayView
       greeting="Good afternoon"
+      onOpenPlayer={onOpenPlayer}
       onStart={onStart}
       startError={null}
       starting={false}
@@ -130,18 +132,22 @@ describe('TodayView — session states', () => {
     expect(view.getByText('Swap for a recovery option')).toBeOnTheScreen();
   });
 
-  it('reflects an in-progress session and flags the player as a later step', async () => {
-    const view = await renderView({
-      data: baseModel({
-        session: { inProgress: true, kind: 'active', session: activeSession },
-      }),
-      status: 'ready',
-    });
+  it('offers to continue an in-progress session and opens the player', async () => {
+    const onOpenPlayer = jest.fn<(scheduledSessionId: string) => void>();
+    const view = await renderView(
+      {
+        data: baseModel({
+          session: { inProgress: true, kind: 'active', session: activeSession },
+        }),
+        status: 'ready',
+      },
+      noop,
+      onOpenPlayer,
+    );
     expect(view.getByText('i In progress')).toBeOnTheScreen();
-    expect(
-      view.getByText(/guided session player arrives in a later update/),
-    ).toBeOnTheScreen();
     expect(view.queryByLabelText("Start today's session")).toBeNull();
+    fireEvent.press(view.getByLabelText("Continue today's session"));
+    expect(onOpenPlayer).toHaveBeenCalledWith('s-wed');
   });
 
   it('shows an Achilles note only on an Achilles day, with no medical claim', async () => {

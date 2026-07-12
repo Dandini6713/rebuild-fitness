@@ -17,8 +17,12 @@ export type TodayViewState =
 
 export type UseTodayValue = {
   greeting: string;
+  reload: () => void;
   startError: string | null;
-  startSession: (scheduledSessionId: string) => void;
+  startSession: (
+    scheduledSessionId: string,
+    onStarted?: (scheduledSessionId: string) => void,
+  ) => void;
   starting: boolean;
   state: TodayViewState;
   todayIso: string;
@@ -65,8 +69,15 @@ export function useToday(
     };
   }, [repository, requestKey, todayIso, userId]);
 
+  const reload = useCallback(() => {
+    setReloadCount((count) => count + 1);
+  }, []);
+
   const startSession = useCallback(
-    (scheduledSessionId: string) => {
+    (
+      scheduledSessionId: string,
+      onStarted?: (scheduledSessionId: string) => void,
+    ) => {
       if (!repository || !userId || starting) {
         return;
       }
@@ -81,8 +92,11 @@ export function useToday(
         .then((result) => {
           setStarting(false);
           if (result.success) {
-            // Re-load so Today reflects the now in-progress session.
+            // Re-load so Today reflects the now in-progress session, then let the
+            // caller take over (roadmap 11 opens the workout player on the row
+            // that has just been created).
             setReloadCount((count) => count + 1);
+            onStarted?.(scheduledSessionId);
           } else {
             setStartError(result.message);
           }
@@ -100,5 +114,13 @@ export function useToday(
     state = fetched.result;
   }
 
-  return { greeting, startError, startSession, starting, state, todayIso };
+  return {
+    greeting,
+    reload,
+    startError,
+    startSession,
+    starting,
+    state,
+    todayIso,
+  };
 }
