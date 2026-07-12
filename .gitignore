@@ -13,3 +13,5 @@ outputs/
 
 .claude-flow/
 .DS_Store
+
+.claude/

@@ -3,12 +3,14 @@
 // Supabase or auth. It renders the read-only first weeks of the plan; starting
 // sessions and the richer planner are later roadmap steps.
 
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
 
 import {
   AppText,
   Card,
   EmptyState,
+  ErrorState,
+  LoadingState,
   SectionHeader,
   StatusBadge,
   type StatusTone,
@@ -67,18 +69,14 @@ function WeekCard({ week }: { week: PlanPreviewWeek }) {
 }
 
 export function PlanPreviewView({ state }: { state: PlanPreviewState }) {
-  const { colours, spacing } = useAppTheme();
+  const { spacing } = useAppTheme();
 
   if (state.status === 'loading') {
     return (
-      <View
-        accessibilityLabel="Loading your plan"
-        accessibilityRole="progressbar"
-        style={{ gap: spacing.md, paddingVertical: spacing.xl }}
-      >
-        <ActivityIndicator color={colours.accent} size="large" />
-        <AppText tone="secondary">Loading your plan…</AppText>
-      </View>
+      <LoadingState
+        description="Loading your plan…"
+        label="Loading your plan"
+      />
     );
   }
 
@@ -93,7 +91,7 @@ export function PlanPreviewView({ state }: { state: PlanPreviewState }) {
 
   if (state.status === 'error') {
     return (
-      <EmptyState description={state.message} title="Can't load your plan" />
+      <ErrorState description={state.message} title="Can't load your plan" />
     );
   }
 
