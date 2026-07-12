@@ -20,6 +20,7 @@ import {
 } from '@/components/common';
 import { ScaleSelector } from '@/components/workout/ScaleSelector';
 import { Stepper } from '@/components/workout/Stepper';
+import { ReadinessBlockCard } from '@/features/readiness/ReadinessBlockCard';
 import type { LoggedSet } from '@/domain/training/workoutPlayer';
 import {
   describeDuration,
@@ -130,6 +131,11 @@ export function WorkoutPlayerView({
         title="Not a strength session"
       />
     );
+  }
+  if (state.status === 'blocked') {
+    // A red pre-session readiness result blocked starting this session (docs/06
+    // §6.5, docs/07 §7.4). Show the honest red result instead of the player.
+    return <ReadinessBlockCard />;
   }
   if (state.status === 'error') {
     return (

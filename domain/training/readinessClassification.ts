@@ -36,6 +36,23 @@
 
 export const RULE_VERSION = 'readiness/v1';
 
+// The stable marker the trusted start RPC (start_scheduled_session, roadmap 14) puts
+// in its exception message when it refuses to start a running or demanding lower-body
+// session because the latest pre-session readiness result is red (docs/06 §6.5 hard
+// rule, docs/07 §7.4). The client detects it to render the honest red result screen
+// instead of a generic connection error. Kept here, beside the rules, so both the
+// Today and workout-player start paths read the same single source.
+export const READINESS_RED_BLOCK_MARKER = 'readiness-red-block';
+
+// True when a failed session-start RPC call was the server refusing a red-blocked
+// start (as opposed to an ordinary error or a dropped connection). Detection is by the
+// message marker: it survives the PostgREST boundary in error.message unchanged.
+export function isReadinessBlockError(
+  error: { message?: string | null } | null | undefined,
+): boolean {
+  return (error?.message ?? '').includes(READINESS_RED_BLOCK_MARKER);
+}
+
 export type StiffnessChange = 'better' | 'same' | 'worse';
 export type SwellingLevel = 'none' | 'mild' | 'significant';
 export type WalkingStatus = 'normal' | 'altered';

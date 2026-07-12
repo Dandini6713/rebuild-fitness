@@ -28,6 +28,7 @@ import {
   type PlanSessionType,
 } from '@/domain/training/planSchedule';
 import type { TodaySessionState } from '@/domain/training/todaySession';
+import { ReadinessBlockCard } from '@/features/readiness/ReadinessBlockCard';
 import { useAppTheme } from '@/theme/useAppTheme';
 
 import type { TodayNutrition } from './todayRepository';
@@ -58,6 +59,9 @@ type TodayViewProps = {
   onOpenPlayer: (scheduledSessionId: string) => void;
   onStart: (scheduledSessionId: string) => void;
   startError: string | null;
+  // True when a start was refused by a red pre-session readiness result (docs/06
+  // §6.5). The session section shows the honest red result instead of a start button.
+  startBlocked?: boolean;
   starting: boolean;
   state: TodayViewState;
   todayIso: string;
@@ -67,6 +71,7 @@ export function TodayView({
   greeting,
   onOpenPlayer,
   onStart,
+  startBlocked = false,
   startError,
   starting,
   state,
@@ -102,6 +107,7 @@ export function TodayView({
         onOpenPlayer={onOpenPlayer}
         onStart={onStart}
         session={session}
+        startBlocked={startBlocked}
         startError={startError}
         starting={starting}
       />
@@ -139,12 +145,14 @@ function SessionSection({
   onOpenPlayer,
   onStart,
   session,
+  startBlocked,
   startError,
   starting,
 }: {
   onOpenPlayer: (scheduledSessionId: string) => void;
   onStart: (scheduledSessionId: string) => void;
   session: TodaySessionState;
+  startBlocked: boolean;
   startError: string | null;
   starting: boolean;
 }) {
@@ -219,6 +227,11 @@ function SessionSection({
             onPress={() => onOpenPlayer(session.session.id)}
           />
         </View>
+      ) : startBlocked ? (
+        // A red pre-session readiness result blocked this start (docs/06 §6.5,
+        // docs/07 §7.4). The block is enforced server-side; here we show the honest
+        // red result in place of the start controls rather than offer an override.
+        <ReadinessBlockCard />
       ) : (
         <View style={{ gap: spacing.sm }}>
           {/* The primary action, visually dominant per docs/03: the filled

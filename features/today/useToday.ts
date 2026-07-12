@@ -19,6 +19,9 @@ export type UseTodayValue = {
   greeting: string;
   reload: () => void;
   startError: string | null;
+  // True once a start was refused because the latest pre-session readiness result is
+  // red (docs/06 §6.5). The screen shows the honest red result instead of starting.
+  startBlockedByReadiness: boolean;
   startSession: (
     scheduledSessionId: string,
     onStarted?: (scheduledSessionId: string) => void,
@@ -47,6 +50,7 @@ export function useToday(
   const [reloadCount, setReloadCount] = useState(0);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [startBlockedByReadiness, setStartBlockedByReadiness] = useState(false);
 
   const requestKey = `${userId ?? ''}:${todayIso}:${reloadCount}`;
   const [fetched, setFetched] = useState<{
@@ -70,6 +74,9 @@ export function useToday(
   }, [repository, requestKey, todayIso, userId]);
 
   const reload = useCallback(() => {
+    // Returning to Today (or an explicit reload) clears a prior block: the user may
+    // have since recorded a fresh readiness check, so let them try to start again.
+    setStartBlockedByReadiness(false);
     setReloadCount((count) => count + 1);
   }, []);
 
@@ -83,6 +90,7 @@ export function useToday(
       }
       setStarting(true);
       setStartError(null);
+      setStartBlockedByReadiness(false);
       void repository
         .startSession({
           scheduledSessionId,
@@ -97,6 +105,10 @@ export function useToday(
             // that has just been created).
             setReloadCount((count) => count + 1);
             onStarted?.(scheduledSessionId);
+          } else if (result.blocked) {
+            // A red readiness result blocked the start (docs/06 §6.5). This is a
+            // result, not a connection error: show the honest red screen.
+            setStartBlockedByReadiness(true);
           } else {
             setStartError(result.message);
           }
@@ -117,6 +129,7 @@ export function useToday(
   return {
     greeting,
     reload,
+    startBlockedByReadiness,
     startError,
     startSession,
     starting,

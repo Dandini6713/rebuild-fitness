@@ -3,14 +3,16 @@
 // adapter implements it against the RLS-protected, owner-scoped tables. Every read
 // only ever sees the caller's own rows because RLS enforces auth.uid() = user_id.
 //
-// Starting a session (docs/03 S-010 primary action) is a plain owner-scoped insert
-// into workout_logs, not one of the server-authority actions in docs/04 §4.2
-// (plan progression, calorie changes, AI actions), so it is safe to write from the
-// client under RLS. The guided workout player (S-012) is a later roadmap item; this
-// step only records that the session has begun. See useToday and CLAUDE.md.
+// Starting a session (docs/03 S-010 primary action) goes through the trusted
+// start_scheduled_session RPC (roadmap 14), NOT a direct workout_logs insert. A red
+// readiness result must block a running or demanding-lower-body start and must not be
+// overridable (docs/06 §6.5, docs/07 §7.4), so the enforcement lives server-side and
+// workout_logs no longer grants the client INSERT. A blocked start comes back as a
+// typed `blocked` failure the UI renders as the red result, never a connection error.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { isReadinessBlockError } from '@/domain/training/readinessClassification';
 import {
   computeWeeklyAdherence,
   deriveTodaySessionState,
@@ -66,7 +68,13 @@ export type TodayBackend = {
     scheduledSessionId: string;
     startedAtIso: string;
     userId: string;
-  }): Promise<{ data: { id: string } | null; error: BackendError }>;
+  }): Promise<{
+    data: { id: string } | null;
+    error: BackendError;
+    // True when the server refused the start because the latest pre-session readiness
+    // result is red (docs/06 §6.5). A block is not an error to retry — it is a result.
+    blocked?: boolean;
+  }>;
 };
 
 // Nutrition degrades on its own: a target may be set with, as yet, no way to log
@@ -94,7 +102,10 @@ export type TodayResult =
   | { message: string; status: 'error' };
 
 export type StartResult =
-  { logId: string; success: true } | { message: string; success: false };
+  | { logId: string; success: true }
+  // `blocked` distinguishes a red-readiness refusal (render the red result) from an
+  // ordinary failure (render the error). Both carry a message for the fallback path.
+  | { blocked: boolean; message: string; success: false };
 
 export function createSupabaseTodayBackend(
   client: SupabaseClient<Database>,
@@ -135,18 +146,26 @@ export function createSupabaseTodayBackend(
       return { data, error };
     },
 
-    async startSession({ scheduledSessionId, startedAtIso, userId }) {
-      const { data, error } = await client
-        .from('workout_logs')
-        .insert({
-          scheduled_session_id: scheduledSessionId,
-          started_at: startedAtIso,
-          status: 'in_progress',
-          user_id: userId,
-        })
-        .select('id')
-        .single();
-      return { data: data ?? null, error };
+    async startSession({ scheduledSessionId, startedAtIso }) {
+      // The trusted RPC captures auth.uid() itself and is the only writer of a
+      // starting workout_logs row; the client no longer inserts directly. It returns
+      // the new log id, or raises with the readiness-red-block marker when a red
+      // pre-session result blocks a gated session.
+      const { data, error } = await client.rpc('start_scheduled_session', {
+        p_scheduled_session_id: scheduledSessionId,
+        p_started_at: startedAtIso,
+      });
+      if (error) {
+        return {
+          blocked: isReadinessBlockError(error),
+          data: null,
+          error,
+        };
+      }
+      return {
+        data: typeof data === 'string' ? { id: data } : null,
+        error: null,
+      };
     },
   };
 }
@@ -155,6 +174,8 @@ const READ_ERROR =
   'We could not load today. Check your connection and try again.';
 const START_ERROR =
   'We could not start your session. Check your connection and try again.';
+const START_BLOCKED =
+  'This session will not start because your latest readiness check was red.';
 
 // Builds the nutrition section from the effective-dated targets. Intake is not yet
 // sourced anywhere, so progress is left null and the view shows the target alone
@@ -273,9 +294,12 @@ export function createTodayRepository(backend: TodayBackend) {
       startedAtIso: string;
       userId: string;
     }): Promise<StartResult> {
-      const { data, error } = await backend.startSession(input);
+      const { blocked, data, error } = await backend.startSession(input);
+      if (blocked) {
+        return { blocked: true, message: START_BLOCKED, success: false };
+      }
       if (error || !data) {
-        return { message: START_ERROR, success: false };
+        return { blocked: false, message: START_ERROR, success: false };
       }
       return { logId: data.id, success: true };
     },

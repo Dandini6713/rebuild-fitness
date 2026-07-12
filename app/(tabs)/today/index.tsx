@@ -15,11 +15,18 @@ import { useNetworkStatus } from '@/lib/network/useNetworkStatus';
 // (creating the workout_log) and opens the guided strength player on that same
 // row; an already in-progress session offers "Continue session", which reopens the
 // player without creating a second log.
+//
+// Roadmap 14: "Start session" now goes through the trusted start_scheduled_session
+// RPC. A red pre-session readiness result blocks a running or demanding-lower-body
+// start server-side; the block surfaces here as startBlockedByReadiness and TodayView
+// shows the honest red result. Passing through the standalone "Readiness check" is how
+// the user records the check the block reads.
 export default function TodayScreen() {
   const router = useRouter();
   const {
     greeting,
     reload,
+    startBlockedByReadiness,
     startError,
     startSession,
     starting,
@@ -60,16 +67,17 @@ export default function TodayScreen() {
             onStart={(scheduledSessionId) =>
               startSession(scheduledSessionId, openPlayer)
             }
+            startBlocked={startBlockedByReadiness}
             startError={startError}
             starting={starting}
             state={state}
             todayIso={todayIso}
           />
           {/*
-            Roadmap 13: a standalone entry to the readiness check (S-011). This does
-            NOT gate starting a session — roadmap 14 owns reading the latest
-            pre-session classification at session-start and blocking a red result.
-            Here it simply lets the user record and see a readiness result.
+            The standalone entry to the readiness check (S-011). Recording a
+            pre-session check here is how the user updates the classification the
+            server reads when they next start the session; a red result then blocks
+            that start (roadmap 14).
           */}
           <SecondaryButton
             label="Readiness check"

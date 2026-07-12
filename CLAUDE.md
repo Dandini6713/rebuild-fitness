@@ -117,13 +117,34 @@ Complete:
   shown; the rich result screens and the red-blocks-session-start enforcement are roadmap 14.
   A pgTAP test asserts the server classifies identically to the documented cases and that no
   classification can be smuggled in. See the notes below on the R13/R14 split and the seams.
+- Roadmap 14, readiness result screens and server-enforced blocking. A red pre-session
+  readiness result now BLOCKS a running or demanding-lower-body session from starting
+  (docs/06 §6.5 hard rule), and the block is server-enforced and unbypassable (docs/07 §7.4).
+  The crux is a second `security definer` RPC, `start_scheduled_session` (migration
+  `20260716090000`): it captures `auth.uid()`, loads the caller's own scheduled session,
+  decides whether it is gated (`session_type in ('running','strength')` — mirroring
+  `classifySession`), reads the newest `pre_session` `readiness_checkin` FOR THAT session,
+  and raises (creating no row) when that latest classification is red; otherwise it inserts
+  the `in_progress` `workout_logs` row and returns its id. The same migration REVOKES INSERT
+  on `workout_logs` from `authenticated`, so this RPC is the ONLY way to start a session and
+  the block cannot be bypassed by a direct insert (SELECT/UPDATE/DELETE are untouched, so the
+  player still completes its own log). BOTH start doors now route through it: `features/today`
+  `startSession` and `features/workouts` `createLog`. A blocked start comes back as a typed
+  `blocked` failure (marker `readiness-red-block`), never a connection error, and the UI shows
+  the honest red result (`ReadinessBlockCard`, shared copy via `readinessCopy.ts`). The S-011
+  result screen (`ReadinessResultView`) now conveys the result by icon, heading and text with
+  the red professional-care escalation, amber gentler-option guidance and the green
+  "does not guarantee safety" caveat. A pgTAP test proves the enforcement matrix (red blocks
+  running and strength; green/amber/no-check permit; a later non-red check clears a prior red;
+  cardio/achilles are never gated; a blocked start writes no row; a direct client insert is
+  denied). See the notes below on the enforcement boundaries and seams.
 
 Not started:
 
-- Roadmap 14 onwards (readiness result screens and enforcement, and the rest). Roadmap 14
-  (docs/06 §6.2 result screens, the full precedence/missing-input matrix, and the red-blocks-
-  session-start enforcement) is the next piece of work; the classifier and trusted storage it
-  builds on already exist from roadmap 13.
+- Roadmap 15 onwards (the activity/equipment substitution flow, then the rest). The readiness
+  classifier, trusted storage and the red session-start block all exist now (roadmap 13/14);
+  what remains for readiness is the amber activity swap (roadmap 15) and prompting a
+  pre-session check before every gated session (a declared seam, see the notes below).
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
 `schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts` and
@@ -531,6 +552,51 @@ How readiness capture works and what it deliberately left for later:
   pre-session classification into that engine — **not** wired here. A fifth, smaller seam: "the
   user cannot load the leg normally" (a red trigger, docs/06 §6.2) has no S-011 field, so it is
   honoured as an optional `cannotBearWeight` input for a future form and otherwise dormant.
+
+## Achilles classifier and enforcement boundaries carried out of Roadmap 14
+
+How the red block works and what it deliberately left for later:
+
+- The block is server-enforced, not a UI guard. `start_scheduled_session` (migration
+  `20260716090000`, `security definer`, `search_path = ''`, granted to `authenticated` only)
+  is the sole writer of a starting `workout_logs` row, because the same migration REVOKES
+  INSERT on `workout_logs` from `authenticated`. A client that skipped its own check still
+  cannot create the row: with no INSERT grant the direct insert is denied, so the only path in
+  re-checks readiness server-side. This is the same principle as roadmap 13's readiness insert
+  (the table has no client INSERT grant; a definer RPC is the trusted writer). SELECT / UPDATE
+  / DELETE on `workout_logs` are deliberately untouched — the player still reads and, on
+  completion, updates its own log; completing a session is not starting one, so it is not gated.
+- Both start doors route through the RPC. There are two ways a session begins — Today's
+  "Start session" (`features/today` `startSession`) and the player's fallback log creation
+  (`features/workouts` `createLog`, used on a deep link / continue when no in-progress log
+  exists). BOTH call `start_scheduled_session`; gating only one would leak the block. Today's
+  door is the usual one and blocks before navigating to the player.
+- Latest-pre-session-check semantics. The RPC reads the single most recent `pre_session`
+  `readiness_checkin` for that scheduled session (`order by created_at desc limit 1`). Only the
+  latest counts: a later non-red check clears an earlier red (the user rechecked and improved).
+  Green and amber both PERMIT the start — amber warns and offers a gentler option (roadmap 15),
+  it does not block; only red blocks. No pre-session check at all PERMITS the start: a session
+  is never gated behind a check the user was not asked to complete.
+- Which session types are gated. Only running and demanding-lower-body (`session_type in
+('running','strength')`), mirroring `classifySession` — in the current plan a strength
+  session IS demanding lower-body. Cardio, rest and Achilles-day sessions are never blocked by a
+  red result. When a future template adds an upper-body-only strength day, this list needs the
+  same template-level flag `classifySession` documents; that is the shared seam.
+- Typed failure, honest copy. A blocked start returns a typed `blocked` result (detected via
+  the `readiness-red-block` marker in the RPC's exception message, `isReadinessBlockError`),
+  never a connection error. The UI shows `ReadinessBlockCard` (red status by icon + heading +
+  text, the docs/07 §7.2 professional-care escalation, "you can still log and view", a
+  non-diagnosis note). The S-011 result screen and the block card share label/tone/heading copy
+  via `readinessCopy.ts`, and the sentence copy comes from `presentClassification`, so wording
+  has one source.
+- The three declared seams (not built here): (1) prompting the user to complete a pre-session
+  check before every running/lower-body session is not built — the check stays user-initiated
+  (roadmap 13's Today entry), so a gated session with no check simply starts. (2) The amber
+  activity swap (replace running with walking/cycling/rest, reduce lower-body volume) is the
+  substitution flow (roadmap 15); the result screen returns the guidance, it does not perform
+  the swap. (3) Feeding the latest pre-session classification into `strengthProgression.ts`
+  (the `amberReadiness` hold) is still a later step — the engine already honours it when
+  supplied, but no code passes it in yet.
 
 ## Known small issues to clean up (not blocking)
 

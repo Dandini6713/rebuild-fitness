@@ -1024,6 +1024,10 @@ export type Database = {
         Args: { p_reset?: boolean; p_start_date: string }
         Returns: string
       }
+      start_scheduled_session: {
+        Args: { p_scheduled_session_id: string; p_started_at: string }
+        Returns: string
+      }
       submit_readiness_checkin: {
         Args: {
           p_cannot_bear_weight?: boolean

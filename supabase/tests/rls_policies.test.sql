@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(15);
+select plan(16);
 
 create temporary table rls_mutation_results (
   operation text primary key,
@@ -57,6 +57,23 @@ select is(
   ),
   0,
   'mobile clients cannot submit an arbitrary readiness classification'
+);
+
+-- Roadmap 14: starting a session goes through the trusted start_scheduled_session
+-- RPC, and the client's direct INSERT on workout_logs is revoked so a red readiness
+-- block cannot be bypassed. SELECT / UPDATE / DELETE remain (the player still reads
+-- and completes its own log).
+select is(
+  (
+    select count(*)::integer
+    from information_schema.role_table_grants
+    where table_schema = 'public'
+      and table_name = 'workout_logs'
+      and grantee = 'authenticated'
+      and privilege_type = 'INSERT'
+  ),
+  0,
+  'clients cannot insert a workout_logs row directly; only the trusted RPC starts a session'
 );
 
 insert into auth.users (id, email)

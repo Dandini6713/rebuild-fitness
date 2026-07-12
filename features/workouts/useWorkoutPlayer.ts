@@ -77,6 +77,8 @@ export type PlayerViewState =
   | { status: 'unavailable' }
   | { status: 'not-strength' }
   | { status: 'empty' }
+  // A red pre-session readiness result blocked creating the log (docs/06 §6.5).
+  | { status: 'blocked' }
   | { status: 'error'; message: string }
   | PlayerReady;
 
@@ -159,7 +161,7 @@ export function useWorkoutPlayer(
 
   const [model, setModel] = useState<PlayerReadModel | null>(null);
   const [loadState, setLoadState] = useState<
-    'loading' | 'unavailable' | 'not-strength' | 'empty' | 'error'
+    'loading' | 'unavailable' | 'not-strength' | 'empty' | 'blocked' | 'error'
   >('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -469,7 +471,8 @@ export function useWorkoutPlayer(
       if (
         loadState === 'unavailable' ||
         loadState === 'not-strength' ||
-        loadState === 'empty'
+        loadState === 'empty' ||
+        loadState === 'blocked'
       ) {
         return { status: loadState };
       }

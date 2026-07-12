@@ -24,6 +24,7 @@ import {
   type PreviousResult,
   type PriorSet,
 } from '@/domain/training/workoutPlayer';
+import { isReadinessBlockError } from '@/domain/training/readinessClassification';
 import {
   evaluateStrengthProgression,
   type Exposure,
@@ -142,7 +143,7 @@ export type WorkoutPlayerBackend = {
     scheduledSessionId: string;
     startedAtIso: string;
     userId: string;
-  }): Promise<{ data: RawLog | null; error: BackendError }>;
+  }): Promise<{ data: RawLog | null; error: BackendError; blocked?: boolean }>;
   fetchTemplate(templateId: string): Promise<{
     data: { id: string; name: string } | null;
     error: BackendError;
@@ -239,6 +240,11 @@ export type LoadResult =
   // player does not apply (the cardio player is a later roadmap item).
   | { status: 'not-strength' }
   | { status: 'empty' }
+  // The trusted start RPC refused to create the log because the latest pre-session
+  // readiness result is red (docs/06 §6.5). Only reached when the player itself has
+  // to create the log (a deep link / continue with no existing in-progress log); the
+  // usual door is Today's "Start session", which blocks before navigating here.
+  | { status: 'blocked' }
   | { status: 'error'; message: string };
 
 // logSet always succeeds locally (the set is durably saved before any network
@@ -443,6 +449,11 @@ export function createWorkoutPlayerRepository(deps: {
           startedAtIso: input.nowIso,
           userId: input.userId,
         });
+        if (created.blocked) {
+          // A red pre-session readiness result blocked creating the log (docs/06
+          // §6.5). Surface it as the honest block, not a generic load error.
+          return { status: 'blocked' };
+        }
         if (created.error || !created.data) {
           return { message: READ_ERROR, status: 'error' };
         }
@@ -761,18 +772,28 @@ export function createSupabaseWorkoutPlayerBackend(
       return { error };
     },
 
-    async createLog({ scheduledSessionId, startedAtIso, userId }) {
-      const { data, error } = await client
-        .from('workout_logs')
-        .insert({
-          scheduled_session_id: scheduledSessionId,
-          started_at: startedAtIso,
-          status: 'in_progress',
-          user_id: userId,
-        })
-        .select('id, started_at')
-        .single();
-      return { data: data ?? null, error };
+    async createLog({ scheduledSessionId, startedAtIso }) {
+      // The trusted RPC is the only writer of a starting workout_logs row (roadmap
+      // 14): it captures auth.uid() and enforces the red-readiness block. It returns
+      // the new log id; started_at echoes the timestamp we passed in.
+      const { data, error } = await client.rpc('start_scheduled_session', {
+        p_scheduled_session_id: scheduledSessionId,
+        p_started_at: startedAtIso,
+      });
+      if (error) {
+        return {
+          blocked: isReadinessBlockError(error),
+          data: null,
+          error,
+        };
+      }
+      return {
+        data:
+          typeof data === 'string'
+            ? { id: data, started_at: startedAtIso }
+            : null,
+        error: null,
+      };
     },
 
     async ensureExerciseLog({

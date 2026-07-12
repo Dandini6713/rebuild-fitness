@@ -1,13 +1,16 @@
-// The minimal, honest readiness acknowledgement (roadmap 13). It shows the result of
-// a submitted check: the classification label conveyed by icon AND text (never colour
-// alone — docs/03 S-011 / docs/09 §9.2), a plain explanation, the allowed action, the
-// structured reasons, and — for a red result — the docs/07 §7.2 professional-care
-// wording. It always states plainly that the app does not diagnose or assess the
-// injury (docs/07).
+// The S-011 readiness result screen (roadmap 14, building on the roadmap-13
+// acknowledgement). It shows the result of a submitted check: the classification
+// conveyed by icon, heading AND text (never colour alone — docs/03 S-011 / docs/09
+// §9.2), a plain explanation, the allowed action, the structured reasons, and — for a
+// red result — the docs/07 §7.2 professional-care wording. It always states plainly
+// that the app does not diagnose or assess the injury (docs/07).
 //
-// This is deliberately NOT the rich S-011 result screen, and it does NOT enforce that
-// a red result blocks a session from starting — both are roadmap 14. The seam where
-// roadmap 14 connects the enforcement is flagged below.
+// This screen presents a result; it does not itself start or gate a session. The
+// server-enforced block — a red pre-session result refusing to start a running or
+// demanding-lower-body session — lives in the start_scheduled_session RPC and is
+// surfaced by ReadinessBlockCard on Today and in the workout player (roadmap 14). The
+// label/tone/heading copy is shared with that card via readinessCopy so wording has
+// one source.
 
 import { View } from 'react-native';
 
@@ -19,7 +22,6 @@ import {
   PrimaryButton,
   SecondaryButton,
   StatusBadge,
-  type StatusTone,
 } from '@/components/common';
 import {
   type ReadinessClassification,
@@ -28,22 +30,13 @@ import {
 } from '@/domain/training/readinessClassification';
 import { useAppTheme } from '@/theme/useAppTheme';
 
+import {
+  CLASSIFICATION_HEADING,
+  CLASSIFICATION_LABEL,
+  CLASSIFICATION_TONE,
+  NON_DIAGNOSIS_NOTE,
+} from './readinessCopy';
 import type { ReadinessResultState } from './useReadiness';
-
-const NON_DIAGNOSIS_NOTE =
-  'This result is based only on your own answers. The app does not diagnose or assess the tendon or any injury.';
-
-const CLASSIFICATION_TONE: Record<ReadinessClassification, StatusTone> = {
-  amber: 'caution',
-  green: 'success',
-  red: 'danger',
-};
-
-const CLASSIFICATION_LABEL: Record<ReadinessClassification, string> = {
-  amber: 'Amber — take a gentler option today',
-  green: 'Green — you can go ahead',
-  red: 'Red — do not start this session',
-};
 
 function ReasonList({ reasons }: { reasons: ReadinessReason[] }) {
   const { spacing } = useAppTheme();
@@ -81,13 +74,20 @@ function ClassificationCard({
           label={CLASSIFICATION_LABEL[classification]}
           tone={CLASSIFICATION_TONE[classification]}
         />
+        <AppText variant="heading">
+          {CLASSIFICATION_HEADING[classification]}
+        </AppText>
         {provisional ? (
           <StatusBadge
             label="Saved on this device — not yet submitted"
             tone="info"
           />
         ) : null}
-        <AppText accessibilityLiveRegion="polite">
+        <AppText
+          accessibilityLiveRegion={
+            classification === 'red' ? 'assertive' : 'polite'
+          }
+        >
           {copy.recommendation}
         </AppText>
         <AppText tone="secondary" variant="label">
@@ -159,10 +159,11 @@ export function ReadinessResultView({
   }
 
   if (state.status === 'classified') {
-    // Roadmap 14 seam: when a red result must block the planned session from
-    // starting, roadmap 14 reads this stored classification (the newest pre-session
-    // check for the scheduled session) at session-start and enforces the block. This
-    // acknowledgement neither gates nor starts a session.
+    // This screen presents the stored server classification. It does not start or gate
+    // a session: the red block is enforced server-side by start_scheduled_session when
+    // the user next tries to start the affected session, and shown there by
+    // ReadinessBlockCard (roadmap 14). Recording a red result here does not, on its
+    // own, open or close anything.
     return (
       <View style={{ gap: spacing.md }}>
         <ClassificationCard

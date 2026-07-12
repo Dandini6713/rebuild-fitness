@@ -132,6 +132,41 @@ describe('TodayView — session states', () => {
     expect(view.getByText('Swap for a recovery option')).toBeOnTheScreen();
   });
 
+  it('shows the honest red result instead of a start button when the start is blocked', async () => {
+    // A red pre-session readiness result blocked the start (docs/06 §6.5, docs/07
+    // §7.4). Today must show the red result and NOT offer a way to start anyway.
+    const onStart = jest.fn<(scheduledSessionId: string) => void>();
+    const view = await render(
+      <TodayView
+        greeting="Good afternoon"
+        onOpenPlayer={noop}
+        onStart={onStart}
+        startBlocked
+        startError={null}
+        starting={false}
+        state={{
+          data: baseModel({
+            session: {
+              inProgress: false,
+              kind: 'active',
+              session: activeSession,
+            },
+          }),
+          status: 'ready',
+        }}
+        todayIso="2026-07-15"
+      />,
+    );
+    expect(view.getByText('Do not start this session')).toBeOnTheScreen();
+    expect(
+      view.getByText(
+        /your most recent readiness check for this session was red/i,
+      ),
+    ).toBeOnTheScreen();
+    // No overridable start control is offered.
+    expect(view.queryByLabelText("Start today's session")).toBeNull();
+  });
+
   it('offers to continue an in-progress session and opens the player', async () => {
     const onOpenPlayer = jest.fn<(scheduledSessionId: string) => void>();
     const view = await renderView(

@@ -113,6 +113,18 @@ describe('WorkoutPlayerView — shell states', () => {
     });
     expect(view.getByText('Check your connection.')).toBeOnTheScreen();
   });
+
+  it('shows the honest red result when a red readiness check blocks the start', async () => {
+    // docs/06 §6.5 / docs/07 §7.4: a red pre-session result blocks the session and
+    // must not be overridable. The player shows the red result, not the player.
+    const view = await renderView({ status: 'blocked' });
+    expect(view.getByText('Do not start this session')).toBeOnTheScreen();
+    expect(
+      view.getByText(
+        /your most recent readiness check for this session was red/i,
+      ),
+    ).toBeOnTheScreen();
+  });
 });
 
 describe('WorkoutPlayerView — the exercise card', () => {

@@ -199,7 +199,32 @@ describe('today repository — start session', () => {
     });
     expect(result.success).toBe(false);
     if (!result.success) {
+      expect(result.blocked).toBe(false);
       expect(result.message).toContain('could not start');
+    }
+  });
+
+  it('reports a typed block — not a connection error — when readiness is red', async () => {
+    // The trusted RPC refuses a red-blocked start (docs/06 §6.5); the backend flags
+    // it as blocked. The repository must surface a distinct blocked failure so the
+    // UI shows the red result, never an "offline / try again" error.
+    const repo = createTodayRepository(
+      backend({
+        startSession: async () => ({
+          blocked: true,
+          data: null,
+          error: { message: 'readiness-red-block: latest pre-session is red' },
+        }),
+      }),
+    );
+    const result = await repo.startSession({
+      scheduledSessionId: 's-wed',
+      startedAtIso: '2026-07-15T08:00:00.000Z',
+      userId: 'user-1',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.blocked).toBe(true);
     }
   });
 });

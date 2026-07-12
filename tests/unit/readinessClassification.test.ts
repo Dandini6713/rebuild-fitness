@@ -2,6 +2,8 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   classifyReadiness,
+  isReadinessBlockError,
+  READINESS_RED_BLOCK_MARKER,
   type ReadinessInputs,
   RULE_VERSION,
 } from '@/domain/training/readinessClassification';
@@ -252,5 +254,31 @@ describe('readiness classification — unclassifiable (never green)', () => {
       'suddenChange',
       'confidenceScore',
     ]);
+  });
+});
+
+// The docs/10 §10.2 classifier matrix (green pain 0, amber pain 3, red pain 6,
+// significant swelling red, sudden change red, worse-stiffness-with-pain-1 amber,
+// missing input incomplete, red overrides green) is exhaustively covered by the
+// suites above; roadmap 14 adds no new classifier branches, only enforcement.
+
+describe('readiness red-block marker (roadmap 14 enforcement)', () => {
+  it('detects the trusted start RPC block from its error message marker', () => {
+    // The server refuses a red-blocked start with this marker so the client renders
+    // the red result rather than a connection error (docs/06 §6.5, docs/07 §7.4).
+    expect(
+      isReadinessBlockError({
+        message: `${READINESS_RED_BLOCK_MARKER}: the latest pre-session readiness result for this session is red`,
+      }),
+    ).toBe(true);
+  });
+
+  it('does not mistake an ordinary error or a dropped connection for a block', () => {
+    expect(isReadinessBlockError({ message: 'network request failed' })).toBe(
+      false,
+    );
+    expect(isReadinessBlockError({ message: '' })).toBe(false);
+    expect(isReadinessBlockError(null)).toBe(false);
+    expect(isReadinessBlockError(undefined)).toBe(false);
   });
 });

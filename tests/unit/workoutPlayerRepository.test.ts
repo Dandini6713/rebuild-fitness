@@ -18,6 +18,8 @@ function createFake(
     sessionType?: string;
     templateId?: string | null;
     inProgressLogId?: string | null;
+    // When set, createLog behaves like the trusted RPC refusing a red-blocked start.
+    blockOnCreate?: boolean;
     // Completed exposures returned to the progression evaluator on completion.
     exposures?: {
       exerciseId: string;
@@ -66,6 +68,13 @@ function createFake(
     },
     async createLog() {
       state.createdLogs += 1;
+      if (options.blockOnCreate) {
+        return {
+          blocked: true,
+          data: null,
+          error: { message: 'readiness-red-block: latest pre-session is red' },
+        };
+      }
       return {
         data: { id: 'wl-created', started_at: '2026-07-12T10:00:00.000Z' },
         error: null,
@@ -345,6 +354,26 @@ describe('workout player repository — loading a session', () => {
       throw new Error('expected ready');
     }
     expect(result.model.logId).toBe('wl-created');
+  });
+
+  it('reports a blocked start when the RPC refuses to create the log (red readiness)', async () => {
+    // No in-progress log, so the player has to create one; the trusted RPC refuses it
+    // because the latest pre-session readiness result is red (docs/06 §6.5). The
+    // player must surface a block, not a generic load error.
+    const store = createMemoryWorkoutStore();
+    const { backend } = createFake({
+      blockOnCreate: true,
+      inProgressLogId: null,
+    });
+    const repo = createWorkoutPlayerRepository({ backend, store });
+
+    const result = await repo.loadSession({
+      nowIso: '2026-07-12T10:00:00.000Z',
+      scheduledSessionId: 'sess-1',
+      userId: 'user-1',
+    });
+
+    expect(result.status).toBe('blocked');
   });
 
   it('reports a non-strength session rather than opening the strength player', async () => {
