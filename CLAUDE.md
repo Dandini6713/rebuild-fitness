@@ -66,14 +66,27 @@ Complete:
   RLS updates behind repository methods on the extended `features/plan` read model. See the
   notes below on the deliberate seams (readiness, volume, calendar). This superseded the
   roadmap-06 four-week read-only preview on the Plan tab.
+- Roadmap 10, exercise catalogue. Typed read access to the shared `exercises` catalogue and
+  the S-013 Exercise guide. All twelve Strength A and B exercises now carry complete
+  beginner content across the seven guide sections. A new forward migration
+  (`20260712090000`) added three nullable columns — `starting_position`, `breathing`,
+  `substitution_options` — so each of the seven sections is first-class data the screen can
+  render or omit; the content itself is delivered through `seed.sql`, exactly as the original
+  four fields already were. The catalogue is shared reference data, not owner-scoped:
+  `features/catalogue/` reads it through a narrow backend + read model, with the grouping and
+  the seven-section shaping as pure, tested functions in
+  `domain/training/exerciseCatalogue.ts`. The guide is reached from a minimal browsable list
+  on the More tab. See the notes below on the three reconciliations and deliberate seams.
 
 Not started:
 
-- Roadmap 10 onwards (exercise catalogue, and the rest). This is the next piece of work.
+- Roadmap 11 onwards (strength workout player, and the rest). This is the next piece of
+  work.
 
-Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`
-and `schedulingRules.ts` are the first real modules (pure plan-date/label helpers and the
-weekly scheduling rules). The rest of the safety-critical rules engine (Achilles
+Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
+`schedulingRules.ts` and `exerciseCatalogue.ts` are the first real modules (pure
+plan-date/label helpers, the weekly scheduling rules, and the catalogue grouping and
+guide-section shaping). The rest of the safety-critical rules engine (Achilles
 traffic-light logic, strength progression, calorie adjustments) is all
 still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every
 rule needs tests.
@@ -285,11 +298,64 @@ How the planner works and what it deliberately left for later:
   model, so it was not built thin here. Week navigation (previous/next) is likewise deferred;
   the planner shows the week containing today.
 
-## Next up: Roadmap 10, exercise catalogue
+## Exercise catalogue boundaries carried out of Roadmap 10
 
-Build the exercise catalogue on top of the shared `exercises` table (seeded in `seed.sql`) and
-the workout templates. Domain calculations stay outside the component, and every view needs
-loading, empty, error and offline states.
+How the catalogue works and the three things it reconciled rather than guessed:
+
+- Shape. `features/catalogue/` mirrors `features/plan` and `features/today`: a narrow
+  `CatalogueBackend` with a Supabase adapter (`exerciseCatalogueRepository.ts`), a
+  `createCatalogueRepository` that composes a read model from the pure domain functions, two
+  hooks (`useExerciseCatalogue`, `useExerciseGuide`), and pure views
+  (`ExerciseCatalogueView`, `ExerciseGuideView`). The grouping and the seven-section shaping
+  are pure and tested in `domain/training/exerciseCatalogue.ts`; nothing catalogue-shaped
+  lives in a component.
+- Not owner-scoped, by design. The `exercises` catalogue is shared reference data, not
+  user-owned. The RLS migration exposes it read-only to any signed-in user (`authenticated
+catalogue read` — `for select to authenticated using (true)`, plus `grant select on
+public.exercises to authenticated`), so the repository reads it with no `user_id` filter.
+  The read still waits for an authenticated session because RLS requires one. Grouping into
+  Strength A/B is done from the shared table alone, keyed by canonical slug lists that mirror
+  `seed_private_plan`, so the catalogue does not depend on a seeded per-user plan existing.
+- Reconciliation 1 — seven sections from a five-field table. S-013 wants starting position and
+  breathing as their own sections, but the table had no columns for them. Migration
+  `20260712090000` adds three nullable text columns (`starting_position`, `breathing`,
+  `substitution_options`); the justification is in the migration. Nullable is the point: the
+  guide omits a section with no content rather than showing an empty heading
+  (`buildGuideSections` returns only populated sections, proven by test). Mapping:
+  `beginner_setup`→Equipment setup, `starting_position`→Starting position,
+  `execution_steps`→Movement, `breathing`→Breathing, `common_mistakes`→Common mistakes,
+  `stop_criteria`→Stop criteria, `substitution_options`→Approved alternatives.
+- Reconciliation 2 — approved alternatives. `substitution_group` on
+  `workout_template_exercises` is per-template placement and belongs to the activity/equipment
+  substitution _flow_ that roadmap 06 deferred (roadmap 15). Rather than pull that forward, the
+  guide sources its alternatives from the new `substitution_options` prose column on the
+  exercise itself — read-only reference copy, not a swap action. The interactive substitution
+  flow (using `substitution_group` and the not-yet-built equipment tables) remains a documented
+  seam for a later roadmap.
+- Reconciliation 3 — how the guide is reached. There is no workout player yet (that is roadmap
+  11, which will link each exercise card to its guide in context), and no catalogue tab. So the
+  entry point is deliberately minimal: a browsable list grouped into the two strength sessions,
+  reached from a "Learn → Exercise guide" entry on the More tab (`app/(tabs)/more/` became a
+  small stack: `exercises.tsx` list, `exercise/[slug].tsx` guide). No search or filtering was
+  built; the guide screen is the deliverable, and the richer in-session entry point is roadmap
+  11's.
+- Safety copy. Stop criteria is presented as plain "when to stop and seek advice" guidance,
+  conveyed by icon and text (a caution `StatusBadge`, never colour alone) with an explicit
+  non-diagnostic note: the app does not assess or treat injury (docs/07). It never fakes a
+  green/amber/red readiness classification — that is a later item (docs/06 §6.2).
+- Content delivery. As with the original four fields, the catalogue _content_ lives in
+  `seed.sql` (the catalogue's source of truth in this repo), not baked into the schema
+  migration. `supabase db reset` applies the migration then loads the full seven-field content
+  for all twelve exercises; `database.types.ts` was regenerated for the three new columns.
+
+## Next up: Roadmap 11, strength workout player
+
+Build the guided strength workout player (docs/03 S-012): drive a strength session's exercises
+from the seeded templates, record sets/reps/effort, and offer the discomfort action and rest
+timer. The Exercise guide (S-013) already exists and should be linked from each exercise card.
+Domain calculations stay outside the component, every view needs loading, empty, error and
+offline states, and any progression/adjustment logic is safety-critical (docs/06) and needs
+tests.
 
 ## Known small issues to clean up (not blocking)
 

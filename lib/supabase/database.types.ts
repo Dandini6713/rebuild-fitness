@@ -192,6 +192,7 @@ export type Database = {
           active: boolean
           beginner_setup: string | null
           body_region: string | null
+          breathing: string | null
           category: string
           common_mistakes: string | null
           created_at: string
@@ -201,13 +202,16 @@ export type Database = {
           movement_pattern: string | null
           name: string
           slug: string
+          starting_position: string | null
           stop_criteria: string | null
+          substitution_options: string | null
           updated_at: string
         }
         Insert: {
           active?: boolean
           beginner_setup?: string | null
           body_region?: string | null
+          breathing?: string | null
           category: string
           common_mistakes?: string | null
           created_at?: string
@@ -217,13 +221,16 @@ export type Database = {
           movement_pattern?: string | null
           name: string
           slug: string
+          starting_position?: string | null
           stop_criteria?: string | null
+          substitution_options?: string | null
           updated_at?: string
         }
         Update: {
           active?: boolean
           beginner_setup?: string | null
           body_region?: string | null
+          breathing?: string | null
           category?: string
           common_mistakes?: string | null
           created_at?: string
@@ -233,7 +240,9 @@ export type Database = {
           movement_pattern?: string | null
           name?: string
           slug?: string
+          starting_position?: string | null
           stop_criteria?: string | null
+          substitution_options?: string | null
           updated_at?: string
         }
         Relationships: []
