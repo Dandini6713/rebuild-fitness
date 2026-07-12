@@ -77,26 +77,51 @@ Complete:
   the seven-section shaping as pure, tested functions in
   `domain/training/exerciseCatalogue.ts`. The guide is reached from a minimal browsable list
   on the More tab. See the notes below on the three reconciliations and deliberate seams.
+- Roadmap 11, strength workout player. The guided strength player (S-012) drives a strength
+  session's exercises from the seeded template, records each set (weight, reps, effort and
+  discomfort) local-first, offers the discomfort action and a rest timer, and links each
+  exercise card to its S-013 guide. An on-device SQLite store is the source of truth while a
+  session is live; sync to Supabase is idempotent on `client_operation_id`, deduped both
+  locally and by the DB unique constraint, so a replay after backgrounding or reconnecting
+  never double-writes a set. `features/workouts/` mirrors the other features (narrow backend,
+  read model, `useWorkoutPlayer` hook, pure `WorkoutPlayerView`), with the pure set-state and
+  timing logic in `domain/training/workoutPlayer.ts` and `workoutTimer.ts`. See the notes
+  below on the deliberate seams.
+- Roadmap 12, strength progression engine. A pure, versioned engine
+  (`domain/training/strengthProgression.ts`, `RULE_VERSION` `strength-progression/v1`)
+  implements docs/06 §6.4 exactly: from an exercise's recent completed exposures it returns
+  increase / hold / reduce_or_substitute with a recommendation, structured British-English
+  reasons, the inputs used and a next action. It never applies anything — it proposes.
+  Forward migration `20260713090000` adds `set_logs.technique_controlled`, the
+  `weight_increment_kg` / `single_exposure_progression` config on
+  `workout_template_exercises`, and an owner-scoped `progression_proposals` table (modelled
+  on `readiness_checkins`); `seed_private_plan` seeds the increments and backfills existing
+  rows. Completing a strength workout now closes the scheduled session and stores one
+  proposal per exercise; the player surfaces the newest proposal with Accept / Not now.
+  Exhaustive boundary tests. See the notes below on the deliberate seams.
 
 Not started:
 
-- Roadmap 11 onwards (strength workout player, and the rest). This is the next piece of
-  work.
+- Roadmap 13 onwards (readiness forms, and the rest). Readiness (docs/06 §6.2) is the next
+  piece of work.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
-`schedulingRules.ts` and `exerciseCatalogue.ts` are the first real modules (pure
-plan-date/label helpers, the weekly scheduling rules, and the catalogue grouping and
-guide-section shaping). The rest of the safety-critical rules engine (Achilles
-traffic-light logic, strength progression, calorie adjustments) is all
-still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every
-rule needs tests.
+`schedulingRules.ts`, `exerciseCatalogue.ts` and `strengthProgression.ts` are the real
+modules so far (pure plan-date/label helpers, the weekly scheduling rules, the catalogue
+grouping and guide-section shaping, and the strength progression rules). The rest of the
+safety-critical rules engine (Achilles traffic-light logic, running progression, calorie
+adjustments) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of
+truth and every rule needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
 
 A design-system PR was run before the Supabase foundation by mistake, so PR #2 has no
-roadmap number and everything after it sits two ahead of its roadmap step. For example,
-PR #6 (authentication) is roadmap step 04. Don't count progress by PR number, it will
-always overstate where you are. Count against the roadmap.
+roadmap number and the PR count ran ahead of the roadmap step for a while (PR #6 was
+roadmap step 04, two ahead). That offset is not a fixed constant: it drifts as PRs are
+opened, squashed or landed out of order — for instance roadmap 11 (the strength workout
+player) landed as PR #12, only one ahead. The rule is simply that PR numbers drift and
+tend to overstate where you are, so never count progress by them. Count against the
+roadmap.
 
 ## Commands
 
@@ -348,20 +373,91 @@ public.exercises to authenticated`), so the repository reads it with no `user_id
   migration. `supabase db reset` applies the migration then loads the full seven-field content
   for all twelve exercises; `database.types.ts` was regenerated for the three new columns.
 
-## Next up: Roadmap 11, strength workout player
+## Workout player boundaries carried out of Roadmap 11
 
-Build the guided strength workout player (docs/03 S-012): drive a strength session's exercises
-from the seeded templates, record sets/reps/effort, and offer the discomfort action and rest
-timer. The Exercise guide (S-013) already exists and should be linked from each exercise card.
-Domain calculations stay outside the component, every view needs loading, empty, error and
-offline states, and any progression/adjustment logic is safety-critical (docs/06) and needs
-tests.
+How the player works and what it deliberately left for later:
+
+- Shape. `features/workouts/` mirrors `features/today` and `features/plan`: a narrow
+  `WorkoutPlayerBackend` with a Supabase adapter (`workoutPlayerRepository.ts`), a
+  `createWorkoutPlayerRepository` that composes the read model, a `useWorkoutPlayer` hook and a
+  pure `WorkoutPlayerView`. The set-state and progress logic (`domain/training/workoutPlayer.ts`)
+  and the elapsed/rest clocks (`domain/training/workoutTimer.ts`) are pure and tested; nothing
+  player-shaped lives in a component.
+- Local-first is the source of truth during a live session (docs/04 §4.4/§4.5). Every completed
+  set is written to an on-device store _first_ — SQLite on the phone (`sqliteWorkoutStore.ts`),
+  in-memory on web and in tests (`activeWorkoutStore.ts`) — then best-effort synced to Supabase.
+  A failed network write never loses the set; it stays queued locally and is replayed on
+  reconnect. The player continues the in-progress `workout_logs` row that Today's "Start session"
+  created rather than opening a second one.
+- Idempotent sync, deduped twice. Each set carries a stable `client_operation_id` (a UUID minted
+  once when the set is first recorded, `lib/ids.ts`). A replay after backgrounding or reconnecting
+  carries the same id and is dropped both locally (`dedupeByOperationId`) and by the database's
+  `set_logs.client_operation_id` unique constraint (a 23505 collision is treated as a benign
+  duplicate, not an error), so exactly one row is ever written.
+- What a set captures. Per set: weight, reps, a 1–10 effort score and a 0–10 discomfort score.
+  `session_effort` on `workout_logs` is currently always written as `null` — there is no
+  end-of-session effort prompt yet; the column is present and the seam is flagged for a later step.
+- The discomfort action is informational only. "Something feels uncomfortable" surfaces gentle,
+  conservative options (reduce the weight, move on, end the session) and records the self-reported
+  discomfort score; it never assesses or diagnoses the tendon or any injury (docs/07). The
+  equipment-aware exercise substitution flow is deferred to roadmap 15; "Replace exercise" points
+  to the guide's approved-alternatives prose in the meantime.
+- Deliberate seam that roadmap 12 closes. Completing a workout marks the `workout_logs` row
+  `completed` but does **not** update the originating `scheduled_sessions.status`, so the weekly
+  planner still shows a finished session as planned. Roadmap 12 (strength progression) fixes this
+  in the same `completeWorkout` path and, at the same time, evaluates and stores progression
+  proposals.
+
+## Strength progression boundaries carried out of Roadmap 12
+
+How the engine works and what it deliberately left for later:
+
+- The engine is pure and versioned, and it never applies. `evaluateStrengthProgression`
+  (`domain/training/strengthProgression.ts`, `RULE_VERSION` `strength-progression/v1`) takes the
+  template exercise's config (rep range, target sets, increment, single-exposure flag), the
+  exercise's completed exposures most-recent-first, and optional context, and returns the docs/06
+  §6.1 decision shape. It proposes; acceptance is a separate, explicit user action. Proposals are
+  stored in `progression_proposals` (`proposed` → `accepted`/`dismissed`), never auto-applied.
+- An "exposure" is one workout. It is the set of `set_logs` for an exercise within a single
+  completed `workout_logs` row. The repository groups them by `workout_log_id`, orders by the
+  log's completion time, and hands the engine the most recent one (or two, unless
+  `single_exposure_progression`). Increase needs every prescribed set at the top of the rep range
+  with controlled technique, effort ≤ 8 and discomfort ≤ 2, met across the required exposures, and
+  the proposed weight is exactly the configured increment — never more.
+- Technique fail-safe on historical sets. `technique_controlled` is nullable and every set logged
+  before roadmap 12 is null. A null technique, effort or discomfort on any set fails the increase
+  criteria — a missing value is never read as "good enough to add load". The player captures the
+  flag per set and its input **starts null (unset), not controlled**: the lifter must mark
+  "Controlled" or "Not controlled" deliberately, and an untouched control persists null so the
+  increase rule never fires on assumed-good technique it has no evidence for. A hook test asserts
+  an untouched control logs null and that such a set can never earn an increase end to end.
+- Time-based exercises are excluded via a null increment, and null-rep exercises are not
+  evaluable. The farmer carry (null rep range) returns an honest "not evaluable" hold; the dead
+  bug and farmer carry carry a null `weight_increment_kg`, so they can hold or reduce but never
+  receive a weight-increase proposal. The seed sets the increments (2.5 kg / 1.0 kg) and leaves
+  those two null.
+- Readiness, sleep and confidence are optional-context extension points. `amberReadiness`,
+  `poorSleep` and `userNotConfident` are optional inputs; when absent they are simply unknown and
+  cannot trigger a hold on their own (the same seam shape as `schedulingRules.ts`). Readiness
+  (docs/06 §6.2) and any sleep source are later roadmap items; the engine already honours them
+  when supplied. "Sharp pain" has no distinct data source, so discomfort ≥ 4 is the documented
+  proxy for the reduce/substitute path.
+- Volume-increase wiring stays dormant. `evaluateVolumeIncrease` in `schedulingRules.ts` is
+  deliberately **not** wired: how an accepted lower-body increase feeds it waits for the running
+  side (roadmap 17). The extension point is documented at the foot of `strengthProgression.ts`.
+- Surfacing beyond the player is a later step. Proposals are shown in the workout player at the
+  next exposure; presenting accepted/held/reduced proposals in the weekly review is roadmap 22.
 
 ## Known small issues to clean up (not blocking)
 
-- `SignInScreen.test.tsx` is flaky. It passes alone and usually in full runs, but failed
-  once in a full run, which points to test isolation leaking between suites (an unreset
-  timer or shared mock) rather than a bug in the screen. Worth pinning down so CI stays
-  trustworthy.
+- Test flakes, tracked together:
+  - `WorkoutPlayerView.test.tsx` "shows the workout name, exercise number and elapsed time"
+    previously asserted "3:05 elapsed" against a bare `elapsedSeconds: 185` literal, which could
+    drift under load. **Fixed** in roadmap 12: the fixture now derives elapsed time from a frozen
+    start and "now" through the pure `elapsedSeconds` helper the app itself uses, so the assertion
+    is deterministic regardless of scheduling.
+  - `SignInScreen.test.tsx` is still flaky. It passes alone and usually in full runs, but failed
+    once in a full run, which points to test isolation leaking between suites (an unreset timer or
+    shared mock) rather than a bug in the screen. Still worth pinning down so CI stays trustworthy.
 - `.DS_Store` is tracked despite being in `.gitignore`. Run `git rm --cached .DS_Store`.
 - `npm ci` reports 10 moderate audit findings. Normal for Expo, but worth a glance.
