@@ -1,16 +1,13 @@
-import { AppScreen, EmptyState, SectionHeader } from '@/components/common';
+import { AppScreen } from '@/components/common';
+import { PlanPreviewView } from '@/features/plan/PlanPreviewView';
+import { usePlanPreview } from '@/features/plan/usePlanPreview';
 
 export default function PlanScreen() {
+  const state = usePlanPreview();
+
   return (
     <AppScreen eyebrow="Plan ahead" title="Weekly Planner">
-      <SectionHeader
-        description="Your seven-day plan will be shown as clear, movable session cards."
-        title="This week"
-      />
-      <EmptyState
-        description="Your sessions will appear here after the planning features are connected."
-        title="No plan yet"
-      />
+      <PlanPreviewView state={state} />
     </AppScreen>
   );
 }

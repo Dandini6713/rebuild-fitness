@@ -6,3 +6,4 @@ export { EmptyState } from './EmptyState';
 export { ProgressBar } from './ProgressBar';
 export { SectionHeader } from './SectionHeader';
 export { StatusBadge } from './StatusBadge';
+export type { StatusTone } from './StatusBadge';

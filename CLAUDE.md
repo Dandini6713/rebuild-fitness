@@ -30,18 +30,25 @@ Complete:
   Hook Form and Zod. In-progress answers persist locally in secure device storage so
   onboarding can be left and resumed; on confirmation the finalised profile is written to
   Supabase (`profiles`, `goals`, `health_context`) and `onboarding_completed_at` is set.
-  Onboarding runs after sign-in and gates entry to the tabs. See the notes below on two
+  Onboarding runs after sign-in and gates entry to the tabs. See the notes below on the
   deliberate boundaries.
+- Roadmap 06, seed the private plan. An authenticated, idempotent Postgres RPC
+  (`seed_private_plan`, migration `20260711090600`) writes the two reusable strength
+  templates and the twelve-week schedule (12 `plan_weeks`, 84 `scheduled_sessions`) keyed
+  to `auth.uid()`, in one transaction, and is called on onboarding confirmation before the
+  profile is finalised. The Plan tab now renders the first four weeks. See the notes below
+  on what it consumed and the seams it left.
 
 Not started:
 
-- Roadmap 06 onwards (seed the private plan, app shell tabs, Today screen, and the rest).
-  This is the next piece of work.
+- Roadmap 07 onwards (application shell tabs, Today screen, and the rest). This is the next
+  piece of work.
 
-The entire `domain/` tree is still empty placeholders. The safety-critical rules engine
-(Achilles traffic-light logic, strength progression, calorie adjustments) is all still
-ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every rule
-needs tests.
+Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`
+is the first real module (pure plan-date and label helpers). The safety-critical rules
+engine (Achilles traffic-light logic, strength progression, calorie adjustments) is all
+still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every
+rule needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
 
@@ -89,29 +96,55 @@ Commit the regenerated `database.types.ts` diff alongside any migration.
   diagnosing, treating or rehabilitating injury. See `docs/07`.
 - Commit one roadmap prompt at a time, tested, rather than large unreviewable commits.
 
-## Onboarding boundaries carried into Roadmap 06
+## Plan-seeding boundaries carried out of Roadmap 06
 
-Two things were deliberately scoped during Roadmap 05 and need picking up in 06:
+How seeding works and what it deliberately left for later:
 
-- Availability, equipment and the preferred rate of progress (S-003 and the pace choice)
-  are captured and validated, but there is no table for them yet
-  (`availability_preferences`, `equipment`, `user_equipment` don't exist). They are kept in
-  the local onboarding draft and left for the plan-seeding schema in 06 to consume. Only
-  `profiles`, `goals` and `health_context` are written on confirmation.
-- S-005 confirmation captures the user's confirmation but does not render the first four
-  weeks, because the plan is not seeded until Roadmap 06. The screen shows a clean
-  "being prepared" state. Wire the real week rendering when seeding lands.
+- Mechanism. `public.seed_private_plan(p_start_date date, p_reset boolean)` is a
+  `security invoker` RPC: it runs as the signed-in user so `auth.uid()` owns every row and
+  RLS is satisfied. It cannot live in `seed.sql`, which has no authenticated user; that
+  file still only seeds the shared exercise catalogue. The whole body runs in one
+  transaction and the plan is created `pending` and flipped to `active` only after all
+  weeks and sessions are written, so a half-seeded plan is never readable as active.
+- Idempotency and reset. Re-running with `p_reset = false` when an active plan exists is a
+  no-op that returns the existing plan. `p_reset = true` deletes the active plan (its weeks
+  cascade; its sessions are deleted explicitly, see below) and the two onboarding templates,
+  then rebuilds. Tests in
+  `supabase/tests/seed_private_plan.test.sql` assert one plan / 12 weeks / 84 sessions /
+  2 templates / 12 template exercises across repeat and reset runs, plus isolation and that
+  anon cannot execute it. Note that `scheduled_sessions.plan_week_id` is `on delete set
+null`, not cascade, so the reset path deletes the plan's sessions explicitly before
+  dropping the plan — deleting the plan alone would orphan them. A development-only helper,
+  `npm run supabase:seed:plan -- <auth-user-uuid> [--reset]` (`scripts/dev-seed-plan.sh`),
+  invokes the RPC against the local database as that user for re-seeding while building the
+  plan screens; it refuses any non-local database.
+- Onboarding draft. Roadmap 06 consumes the draft only to set the plan **start date**
+  (`resolvePlanStartDate` → the first Monday on/after confirmation, since the persona
+  pattern anchors Strength to Monday and Thursday). Mapping sessions onto the user's chosen
+  training days is **not** done: done correctly it must honour the weekly safety rules in
+  `docs/06 §6.5` (no consecutive demanding sessions, a guaranteed rest day) and overlaps
+  activity swapping (Roadmap 15). Equipment/pace are still unconsumed and the
+  `availability_preferences` / `equipment` / `user_equipment` tables still don't exist.
+- Schema gaps noted, not worked around. `workout_template_exercises` has no duration field,
+  so the farmer carry (2 × 30–45 s) is stored with null reps and the dead bug's "per side"
+  is a coaching cue only. Cardio Fri/Sat and the Achilles day are typed sessions with no
+  descriptive column yet. No strength load or running progression is baked in — that is
+  Roadmap 12 and 17; seeding lays down the bare structure they later adjust.
+- S-005 loop. The plan now genuinely exists after confirmation. The first four weeks render
+  read-only on the **Plan tab** (`features/plan/`, with loading/empty/error/unavailable
+  states), not inside S-005 itself, because S-005 redirects to the tabs the moment
+  onboarding completes. The richer Today/planner UI is Roadmap 07+.
 
-`react-hook-form` (7.81.0, pinned) is now a dependency. The onboarding feature lives in
-`features/onboarding/` (pure domain modules plus screens), the local secure draft store in
-`lib/persistence/secureStore.ts`, and shared select controls in `components/forms/`.
+The onboarding feature lives in `features/onboarding/`; plan seeding and the preview live in
+`features/plan/` (repository seam + read model + view) with the pure helpers in
+`domain/training/planSchedule.ts`. `react-hook-form` (7.81.0) remains pinned.
 
-## Next up: Roadmap 06, seed the private user plan
+## Next up: Roadmap 07, application shell
 
-Read `supabase/seed.sql` and `docs/06_RULES_ENGINE.md`. Create an idempotent seed process
-for the initial twelve-week plan, Strength A, Strength B, Achilles work and cardio stages,
-keeping templates separate from scheduled sessions, with a development-only seed/reset
-command. Consume the availability and pace captured during onboarding.
+Build out the tab shell and the Today screen against the now-seeded plan: surface today's
+scheduled session (template-backed for strength), the week ahead, and the appropriate
+loading/empty/error/offline states. The Plan tab preview from Roadmap 06 is the read model
+to build on.
 
 ## Known small issues to clean up (not blocking)
 

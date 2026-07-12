@@ -9,7 +9,10 @@ import {
   useState,
 } from 'react';
 
+import { resolvePlanStartDate } from '@/domain/training/planSchedule';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { defaultPlanRepository } from '@/features/plan/defaultPlanRepository';
+import type { PlanRepository } from '@/features/plan/planRepository';
 import { supabase } from '@/lib/supabase';
 
 import {
@@ -63,6 +66,7 @@ const defaultRepository: OnboardingRepository | null = supabase
 
 type OnboardingProviderProps = PropsWithChildren<{
   now?: () => string;
+  planRepository?: PlanRepository | null;
   repository?: OnboardingRepository | null;
   store?: OnboardingStore;
 }>;
@@ -70,6 +74,7 @@ type OnboardingProviderProps = PropsWithChildren<{
 export function OnboardingProvider({
   children,
   now = () => new Date().toISOString(),
+  planRepository = defaultPlanRepository,
   repository = defaultRepository,
   store = onboardingStore,
 }: OnboardingProviderProps) {
@@ -172,7 +177,7 @@ export function OnboardingProvider({
   );
 
   const submit = useCallback(async (): Promise<SubmitResult> => {
-    if (!userId || !repository) {
+    if (!userId || !repository || !planRepository) {
       return {
         message: 'Setup is not available right now. Please try again later.',
         success: false,
@@ -187,6 +192,20 @@ export function OnboardingProvider({
 
     setSubmitting(true);
     const completedAt = now();
+
+    // Seed the private twelve-week plan first, so onboarding is only ever marked
+    // complete once the plan exists. Seeding is idempotent, so a retry after a
+    // later failure will not create a second plan. Onboarding availability sets
+    // the start date; the schedule itself is fixed persona content (roadmap 06).
+    const seeded = await planRepository.seedPrivatePlan({
+      reset: false,
+      startDate: resolvePlanStartDate(completedAt),
+    });
+    if (!seeded.success) {
+      setSubmitting(false);
+      return { message: seeded.message, success: false };
+    }
+
     const result = await repository.submit({
       achilles: draft.achilles,
       completedAt,
@@ -200,7 +219,7 @@ export function OnboardingProvider({
     }
     setSubmitting(false);
     return result;
-  }, [draft, now, persist, repository, userId]);
+  }, [draft, now, persist, planRepository, repository, userId]);
 
   const value = useMemo<OnboardingContextValue>(
     () => ({

@@ -109,9 +109,8 @@ export function ConfirmationStep() {
         <StatusBadge label="Being prepared" tone="info" />
         <AppText variant="heading">Your plan is on its way</AppText>
         <AppText tone="secondary">
-          Once you confirm, Rebuild will prepare your twelve-week plan. The
-          first four weeks and a summary of later progression will appear on
-          your Today screen when they are ready.
+          When you confirm, Rebuild will prepare your twelve-week plan. Your
+          first four weeks will then be ready to view on the Plan tab.
         </AppText>
       </Card>
     </OnboardingStepScaffold>
