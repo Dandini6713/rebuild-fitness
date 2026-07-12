@@ -113,6 +113,29 @@ export function currentWeekRange(isoDate: string): {
   };
 }
 
+// The seven inclusive YYYY-MM-DD dates of the week beginning on `startIso`, in
+// order. Used by the weekly planner to lay out seven day slots and to give the
+// scheduling rules the full window, including days that hold no session. Parsed
+// at UTC midnight so a plain date never shifts with the device time zone.
+export function enumerateWeekDates(startIso: string): string[] {
+  const base = new Date(`${startIso.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(base.getTime())) {
+    throw new Error(`Invalid date: ${startIso}`);
+  }
+  const dates: string[] = [];
+  for (let offset = 0; offset < 7; offset += 1) {
+    const day = new Date(
+      Date.UTC(
+        base.getUTCFullYear(),
+        base.getUTCMonth(),
+        base.getUTCDate() + offset,
+      ),
+    );
+    dates.push(day.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
 const WEEKDAY_NAMES = [
   'Sunday',
   'Monday',

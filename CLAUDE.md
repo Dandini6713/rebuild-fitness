@@ -55,14 +55,26 @@ Complete:
   tested (`domain/nutrition/nutritionTargets.ts`, `domain/training/todaySession.ts`, plus
   `currentWeekRange` in `planSchedule.ts`); the read model and view live in `features/today/`.
   See the notes below on what it deliberately left for later.
+- Roadmap 09, weekly planner. The Plan tab is now the seven-day planner (S-020): seven day
+  cards showing each session, its duration and state, with a session detail sheet offering
+  Move, Replace and Skip. The core is a pure, exhaustively tested scheduling-rules module
+  (`domain/training/schedulingRules.ts`) implementing exactly docs/06 §6.5 — three hard rules
+  (no consecutive runs, a guaranteed rest/recovery day, no two demanding lower-body sessions
+  on one day) and the soft warnings (lower-body before a run, the early-phase demanding cap).
+  Hard conflicts block the save with a plain explanation; soft conflicts require explicit
+  acknowledgement; neither can be bypassed the wrong way. Move/Replace/Skip are owner-scoped
+  RLS updates behind repository methods on the extended `features/plan` read model. See the
+  notes below on the deliberate seams (readiness, volume, calendar). This superseded the
+  roadmap-06 four-week read-only preview on the Plan tab.
 
 Not started:
 
-- Roadmap 09 onwards (weekly planner, and the rest). This is the next piece of work.
+- Roadmap 10 onwards (exercise catalogue, and the rest). This is the next piece of work.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`
-is the first real module (pure plan-date and label helpers). The safety-critical rules
-engine (Achilles traffic-light logic, strength progression, calorie adjustments) is all
+and `schedulingRules.ts` are the first real modules (pure plan-date/label helpers and the
+weekly scheduling rules). The rest of the safety-critical rules engine (Achilles
+traffic-light logic, strength progression, calorie adjustments) is all
 still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every
 rule needs tests.
 
@@ -219,11 +231,65 @@ How Today works and what it deliberately left for later:
   shift. Nutrition intake is wired through `TodayView`/`computeNutrientProgress` but the read
   model supplies `null` intake until food logging exists, so the screen renders targets alone.
 
-## Next up: Roadmap 09, weekly planner
+## Weekly planner boundaries carried out of Roadmap 09
 
-Build the weekly planner (Plan tab) on top of the seeded schedule and the `features/plan` read
-model. Domain calculations stay outside the component, and every view needs loading, empty,
-error and offline states.
+How the planner works and what it deliberately left for later:
+
+- Rules are the core, and pure. `domain/training/schedulingRules.ts` takes a proposed change
+  (move/replace/skip) plus the week's sessions and returns hard and soft conflicts. It
+  implements exactly docs/06 §6.5 — no more, no less — and is exhaustively tested, including
+  the boundaries (runs exactly one day apart versus two, three demanding sessions versus four).
+  The evaluation applies the change to the live sessions first (skipped/cancelled/replaced are
+  dropped), then checks each rule. `canSave` blocks hard conflicts; `requiresAcknowledgement`
+  gates soft ones. The UI enforcement lives in `useWeeklyPlan`, not the view: a hard conflict
+  never reaches the repository, a soft conflict is held pending an explicit "Save anyway", and
+  a clean change saves and reloads (a hook test locks all three down).
+- Session classification (`classifySession`). Derived from `session_type`: `strength` is a
+  demanding lower-body session (both seeded persona templates are compound, lower-body-heavy —
+  leg press/RDL, step-ups/glute bridge); `running` is a run and demanding but not lower-body;
+  `cardio` is walking/low-impact (never treated as running, which would over-fire the
+  consecutive-runs rule); `achilles`/`rest` are recovery. The seam: when a future template adds
+  an upper-body-only strength day, `isDemandingLowerBody` needs a template-level flag — the
+  classifier already takes the template name so the call sites won't change.
+- What the actions persist. All three are plain owner-scoped RLS updates on `scheduled_sessions`
+  (like starting a session in roadmap 08, not server-authority RPCs), behind repository methods:
+  Move sets `scheduled_date`, Skip sets `status = 'skipped'`, Replace sets `session_type` and
+  `template_id`. Each also stamps `source = 'user'` for the adjustment audit trail. Moves are
+  restricted to within the displayed week so `plan_week_id` stays valid.
+- Read model extended, not reinvented. `features/plan/planRepository.ts` gained a `loadWeek`
+  (active plan + sessions in the seven-day range with status, template names and durations) and
+  the three mutations, alongside the existing seed/preview. The roadmap-06 four-week read-only
+  preview (`PlanPreviewView`/`usePlanPreview`) was superseded by the planner on the Plan tab and
+  removed; `loadPreview` itself remains as a still-valid read helper.
+- Deliberate seams. (1) The docs/06 §6.5 hard rule "a red readiness result cancels or replaces
+  the affected session" depends on the readiness feature (docs/06 §6.2, a later roadmap item);
+  `schedulingRules.ts` takes no readiness input and documents the extension point. (2) The soft
+  warning "avoid increasing both running stage and lower-body strength volume in the same week"
+  needs volume/stage figures that move/replace/skip never change; it lives as a separate tested
+  predicate (`evaluateVolumeIncrease`), dormant until progression (roadmap 12/17) feeds it. (3)
+  `isEarlyPhase` is a constant `true` for now (running is not yet enabled), so the demanding cap
+  always applies; it becomes a per-week derivation once running progression lands. (4) The two
+  run-based rules — the hard "no two running sessions on consecutive days" and the soft "avoid
+  demanding lower-body the day before a run" — are **dormant against all current data**. This is
+  deliberate, not a bug. `classifySession` sets `isRunning` only when `session_type === 'running'`,
+  and the seed writes no such type: the week is strength/cardio/achilles/rest, where `cardio` is
+  one undifferentiated bucket of walks, bikes and run-walks. Cardio is explicitly **not** a run,
+  so the seeded Friday/Saturday cardio pair is correctly not flagged as consecutive runs, and the
+  app never flags its own default plan. Both rules activate the moment runs are distinctly typed
+  (`session_type = 'running'`), which arrives with run-walk staging in roadmap 17. The rule logic
+  is already correct in principle and is proven by run-typed fixture tests in
+  `tests/unit/schedulingRules.test.ts`; a companion test asserts the all-cardio seeded week
+  produces no hard conflict, guarding against a regression that reclassifies cardio as running.
+- S-021 calendar. The monthly overview is a marked seam, noted in `app/(tabs)/plan/index.tsx`:
+  detailed scheduling lives in the weekly plan and a month view adds little on the same read
+  model, so it was not built thin here. Week navigation (previous/next) is likewise deferred;
+  the planner shows the week containing today.
+
+## Next up: Roadmap 10, exercise catalogue
+
+Build the exercise catalogue on top of the shared `exercises` table (seeded in `seed.sql`) and
+the workout templates. Domain calculations stay outside the component, and every view needs
+loading, empty, error and offline states.
 
 ## Known small issues to clean up (not blocking)
 

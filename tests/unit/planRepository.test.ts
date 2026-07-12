@@ -31,6 +31,21 @@ function backend(overrides: Partial<PlanBackend>): PlanBackend {
       data: [],
       error: null,
     })),
+    fetchSessionsByDateRange: jest.fn<PlanBackend['fetchSessionsByDateRange']>(
+      async () => ({ data: [], error: null }),
+    ),
+    fetchTemplateSummaries: jest.fn<PlanBackend['fetchTemplateSummaries']>(
+      async () => ({ data: [], error: null }),
+    ),
+    updateSessionDate: jest.fn<PlanBackend['updateSessionDate']>(async () => ({
+      error: null,
+    })),
+    skipScheduledSession: jest.fn<PlanBackend['skipScheduledSession']>(
+      async () => ({ error: null }),
+    ),
+    replaceScheduledSession: jest.fn<PlanBackend['replaceScheduledSession']>(
+      async () => ({ error: null }),
+    ),
     ...overrides,
   };
 }

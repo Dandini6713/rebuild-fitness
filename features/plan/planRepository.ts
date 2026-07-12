@@ -10,9 +10,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { enumerateWeekDates } from '@/domain/training/planSchedule';
 import type { Database } from '@/lib/supabase';
 
 type BackendError = { message: string } | null;
+
+type SessionStatus = Database['public']['Enums']['session_status'];
 
 export type SeedInput = { startDate: string; reset: boolean };
 
@@ -26,6 +29,23 @@ type RawSession = {
   session_type: string;
 };
 type RawTemplate = { id: string; name: string };
+
+// The weekly planner needs a session's status (to know whether it is live,
+// skipped, completed…) and its template's estimated duration, which the preview
+// does not. Kept as separate rows/methods so the preview's types and tests are
+// untouched.
+type RawPlannerSession = {
+  id: string;
+  scheduled_date: string;
+  session_type: string;
+  status: SessionStatus;
+  template_id: string | null;
+};
+type RawTemplateSummary = {
+  id: string;
+  name: string;
+  estimated_minutes: number | null;
+};
 
 export type Ok<T> = { data: T; error: null };
 export type Fail = { data: null; error: { message: string } };
@@ -43,6 +63,31 @@ export type PlanBackend = {
   fetchTemplates(
     templateIds: string[],
   ): Promise<{ data: RawTemplate[] | null; error: BackendError }>;
+  // Weekly planner reads and owner-scoped writes. Move, skip and replace are
+  // plain RLS-protected updates on the user's own scheduled_sessions rows (like
+  // starting a session in roadmap 08), never server-authority RPCs.
+  fetchSessionsByDateRange(
+    startIso: string,
+    endIso: string,
+  ): Promise<{ data: RawPlannerSession[] | null; error: BackendError }>;
+  fetchTemplateSummaries(
+    templateIds: string[],
+  ): Promise<{ data: RawTemplateSummary[] | null; error: BackendError }>;
+  updateSessionDate(input: {
+    sessionId: string;
+    toDate: string;
+    userId: string;
+  }): Promise<{ error: BackendError }>;
+  skipScheduledSession(input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<{ error: BackendError }>;
+  replaceScheduledSession(input: {
+    sessionId: string;
+    toType: string;
+    toTemplateId: string | null;
+    userId: string;
+  }): Promise<{ error: BackendError }>;
 };
 
 export type PlanPreviewSession = {
@@ -72,6 +117,46 @@ export type PreviewResult =
   | { status: 'ready'; preview: PlanPreview }
   | { status: 'empty' }
   | { status: 'error'; message: string };
+
+// --- Weekly planner (S-020) read model -------------------------------------
+
+export type PlannerSession = {
+  id: string;
+  scheduledDate: string;
+  sessionType: string;
+  status: SessionStatus;
+  templateId: string | null;
+  templateName: string | null;
+  durationMinutes: number | null;
+};
+
+export type PlannerDay = {
+  isoDate: string;
+  // Usually one session, but a move can leave two on a day (which the scheduling
+  // rules then flag), and days before the plan starts may hold none.
+  sessions: PlannerSession[];
+};
+
+export type PlannerTemplate = { id: string; name: string };
+
+export type PlannerWeek = {
+  planName: string;
+  weekStart: string;
+  weekEnd: string;
+  weekDates: string[];
+  days: PlannerDay[];
+  // The strength templates already in this week, offered as "replace with…"
+  // options in the session detail sheet.
+  templates: PlannerTemplate[];
+};
+
+export type WeekResult =
+  | { status: 'ready'; week: PlannerWeek }
+  | { status: 'empty' }
+  | { status: 'error'; message: string };
+
+export type MutationResult =
+  { success: true } | { success: false; message: string };
 
 export function createSupabasePlanBackend(
   client: SupabaseClient<Database>,
@@ -125,6 +210,58 @@ export function createSupabasePlanBackend(
         .in('id', templateIds);
       return { data, error };
     },
+
+    async fetchSessionsByDateRange(startIso, endIso) {
+      const { data, error } = await client
+        .from('scheduled_sessions')
+        .select('id, scheduled_date, session_type, status, template_id')
+        .gte('scheduled_date', startIso)
+        .lte('scheduled_date', endIso)
+        .order('scheduled_date', { ascending: true });
+      return { data, error };
+    },
+
+    async fetchTemplateSummaries(templateIds) {
+      const { data, error } = await client
+        .from('workout_templates')
+        .select('id, name, estimated_minutes')
+        .in('id', templateIds);
+      return { data, error };
+    },
+
+    async updateSessionDate({ sessionId, toDate, userId }) {
+      // RLS confines the update to the caller's own rows; the explicit user_id
+      // filter is defence in depth and mirrors the owner-scoped writes elsewhere.
+      // source is marked 'user' so the audit trail (AGENTS.md) shows a manual move.
+      const { error } = await client
+        .from('scheduled_sessions')
+        .update({ scheduled_date: toDate, source: 'user' })
+        .eq('id', sessionId)
+        .eq('user_id', userId);
+      return { error };
+    },
+
+    async skipScheduledSession({ sessionId, userId }) {
+      const { error } = await client
+        .from('scheduled_sessions')
+        .update({ status: 'skipped', source: 'user' })
+        .eq('id', sessionId)
+        .eq('user_id', userId);
+      return { error };
+    },
+
+    async replaceScheduledSession({ sessionId, toType, toTemplateId, userId }) {
+      const { error } = await client
+        .from('scheduled_sessions')
+        .update({
+          session_type: toType,
+          source: 'user',
+          template_id: toTemplateId,
+        })
+        .eq('id', sessionId)
+        .eq('user_id', userId);
+      return { error };
+    },
   };
 }
 
@@ -132,6 +269,8 @@ const READ_ERROR =
   'We could not load your plan. Check your connection and try again.';
 const SEED_ERROR =
   'We could not prepare your plan. Check your connection and try again.';
+const WRITE_ERROR =
+  'We could not save that change. Check your connection and try again.';
 
 export function createPlanRepository(backend: PlanBackend) {
   return {
@@ -213,6 +352,120 @@ export function createPlanRepository(backend: PlanBackend) {
         },
         status: 'ready',
       };
+    },
+
+    // Loads one seven-day window for the weekly planner: the active plan (to tell
+    // "no plan yet" apart from "an ordinary quiet week"), the sessions in the
+    // window with their status, and the template names and durations they need.
+    async loadWeek(range: { start: string; end: string }): Promise<WeekResult> {
+      const plan = await backend.fetchActivePlan();
+      if (plan.error) {
+        return { message: READ_ERROR, status: 'error' };
+      }
+      if (!plan.data) {
+        return { status: 'empty' };
+      }
+
+      const sessionResult = await backend.fetchSessionsByDateRange(
+        range.start,
+        range.end,
+      );
+      if (sessionResult.error) {
+        return { message: READ_ERROR, status: 'error' };
+      }
+      const rawSessions = sessionResult.data ?? [];
+
+      const templateIds = Array.from(
+        new Set(
+          rawSessions
+            .map((session) => session.template_id)
+            .filter((id): id is string => id !== null),
+        ),
+      );
+      const templateNames = new Map<string, string>();
+      const templateMinutes = new Map<string, number | null>();
+      if (templateIds.length > 0) {
+        const templateResult =
+          await backend.fetchTemplateSummaries(templateIds);
+        if (templateResult.error) {
+          return { message: READ_ERROR, status: 'error' };
+        }
+        for (const template of templateResult.data ?? []) {
+          templateNames.set(template.id, template.name);
+          templateMinutes.set(template.id, template.estimated_minutes);
+        }
+      }
+
+      const toSession = (raw: RawPlannerSession): PlannerSession => ({
+        durationMinutes: raw.template_id
+          ? (templateMinutes.get(raw.template_id) ?? null)
+          : null,
+        id: raw.id,
+        scheduledDate: raw.scheduled_date,
+        sessionType: raw.session_type,
+        status: raw.status,
+        templateId: raw.template_id,
+        templateName: raw.template_id
+          ? (templateNames.get(raw.template_id) ?? null)
+          : null,
+      });
+
+      const weekDates = enumerateWeekDates(range.start);
+      const days: PlannerDay[] = weekDates.map((isoDate) => ({
+        isoDate,
+        sessions: rawSessions
+          .filter((session) => session.scheduled_date === isoDate)
+          .map(toSession),
+      }));
+
+      const templates: PlannerTemplate[] = Array.from(templateNames.entries())
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      return {
+        status: 'ready',
+        week: {
+          days,
+          planName: plan.data.name,
+          templates,
+          weekDates,
+          weekEnd: range.end,
+          weekStart: range.start,
+        },
+      };
+    },
+
+    async moveSession(input: {
+      sessionId: string;
+      toDate: string;
+      userId: string;
+    }): Promise<MutationResult> {
+      const { error } = await backend.updateSessionDate(input);
+      return error
+        ? { message: WRITE_ERROR, success: false }
+        : { success: true };
+    },
+
+    async skipSession(input: {
+      sessionId: string;
+      userId: string;
+    }): Promise<MutationResult> {
+      const { error } = await backend.skipScheduledSession(input);
+      return error
+        ? { message: WRITE_ERROR, success: false }
+        : { success: true };
+    },
+
+    async replaceSession(input: {
+      sessionId: string;
+      toType: string;
+      toTemplateId: string | null;
+      userId: string;
+    }): Promise<MutationResult> {
+      const { error } = await backend.replaceScheduledSession(input);
+      return error
+        ? { message: WRITE_ERROR, success: false }
+        : { success: true };
     },
   };
 }
