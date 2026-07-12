@@ -46,11 +46,19 @@ Complete:
   render empty/offline states describing what will live there (no invented sessions or
   numbers), Plan routes its loading/error/offline paths through the new components, and More
   keeps its working sign-out and diagnostics. See the notes below on the deliberate seams.
+- Roadmap 08, Today screen with real data. Today now reads the signed-in user's own rows —
+  today's `scheduled_session`, the current `nutrition_targets` row and this week's
+  `workout_logs` — and renders the S-010 sections in order: date and greeting, the planned
+  session, a dominant "Start session" action, calories and protein, Achilles note where
+  relevant, and the weekly adherence summary. All six required states are present (no plan,
+  rest day, completed, in progress, offline, query failure). Domain calculations are pure and
+  tested (`domain/nutrition/nutritionTargets.ts`, `domain/training/todaySession.ts`, plus
+  `currentWeekRange` in `planSchedule.ts`); the read model and view live in `features/today/`.
+  See the notes below on what it deliberately left for later.
 
 Not started:
 
-- Roadmap 08 onwards (Today screen with real data, and the rest). This is the next piece of
-  work.
+- Roadmap 09 onwards (weekly planner, and the rest). This is the next piece of work.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`
 is the first real module (pure plan-date and label helpers). The safety-critical rules
@@ -175,13 +183,47 @@ How the shell works and what it deliberately left for later:
   what will live there; the previous demo content (an example "Strength A" card, "3 of 5"
   progress) is gone. More keeps its working sign-out and Supabase diagnostics.
 
-## Next up: Roadmap 08, Today screen with real data
+## Today boundaries carried out of Roadmap 08
 
-Implement Today using the seeded scheduled sessions, current nutrition targets and recent
-logs. The primary action must start today's session. Add states for no plan, completed
-session, rest day, offline and query failure — the shell's empty/offline states and the
-`features/plan` read model are the starting points, and domain calculations must stay
-outside the component.
+How Today works and what it deliberately left for later:
+
+- Shape. `features/today/` mirrors `features/plan/`: a narrow `TodayBackend` interface with a
+  Supabase adapter (`todayRepository.ts`), a `createTodayRepository` that composes the read
+  model from pure domain functions, a `useToday` hook (owner-scoped, keyed by user + date),
+  and a pure `TodayView` that renders the resolved state. All calculations are pure and tested
+  — `resolveCurrentNutritionTarget` / `computeNutrientProgress`
+  (`domain/nutrition/nutritionTargets.ts`), `deriveTodaySessionState` /
+  `computeWeeklyAdherence` / `deriveGreeting` / `toIsoDate` (`domain/training/todaySession.ts`)
+  and `currentWeekRange` (`domain/training/planSchedule.ts`).
+- Empty data is the normal case, and each section degrades on its own. Nothing seeds or writes
+  `nutrition_targets` or `workout_logs` yet, and steps/activity has no source at all, so: no
+  target shows "no target set" (never a fabricated zero); the steps section is omitted
+  entirely; adherence with no training sessions reads as "the week hasn't started" (a null
+  percent, not 0 %); and a query error surfaces the error state while empty results do not.
+- "Start session" writes for real. The primary action calls a repository method that inserts a
+  `workout_logs` row (`started_at`, `status = in_progress`, `scheduled_session_id`, `user_id`)
+  — a plain owner-scoped insert under RLS, not one of the docs/04 §4.2 server-authority actions.
+  The guided workout player (docs/03 S-012) is a later roadmap item, so on success Today simply
+  reflects the now in-progress session and says the player arrives later; it does not build the
+  player. Reschedule and recovery swaps are present but disabled, clearly-marked stubs.
+- Rest / completed / in-progress are explicit derived states. `session_type = rest` is a calm,
+  positive rest-day card (never an empty error); a matching completed `workout_log` (or a
+  session already marked completed) drives the completed state; an in-progress log drives the
+  continue/acknowledgement state. Skipped/cancelled sessions are not specially handled yet.
+- Achilles is a scheduling note, not a status. On Achilles days Today shows an informational,
+  icon-and-text note that a readiness check will gate these sessions later; it does not fake a
+  green/amber/red classification (docs/06 §6.2 is a later item) and states plainly that it does
+  not assess whether the tendon is healed (docs/07).
+- "today" is the device's local calendar date (`toIsoDate`), so it matches the day the user is
+  living in; plain stored dates are still parsed at UTC midnight for display so they never
+  shift. Nutrition intake is wired through `TodayView`/`computeNutrientProgress` but the read
+  model supplies `null` intake until food logging exists, so the screen renders targets alone.
+
+## Next up: Roadmap 09, weekly planner
+
+Build the weekly planner (Plan tab) on top of the seeded schedule and the `features/plan` read
+model. Domain calculations stay outside the component, and every view needs loading, empty,
+error and offline states.
 
 ## Known small issues to clean up (not blocking)
 
