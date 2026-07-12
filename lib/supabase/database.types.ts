@@ -623,6 +623,7 @@ export type Database = {
           pain_score: number
           rule_version: string
           scheduled_session_id: string | null
+          session_effort: number | null
           stiffness_change: string
           sudden_change: boolean
           swelling_level: string
@@ -640,6 +641,7 @@ export type Database = {
           pain_score: number
           rule_version: string
           scheduled_session_id?: string | null
+          session_effort?: number | null
           stiffness_change: string
           sudden_change: boolean
           swelling_level: string
@@ -657,6 +659,7 @@ export type Database = {
           pain_score?: number
           rule_version?: string
           scheduled_session_id?: string | null
+          session_effort?: number | null
           stiffness_change?: string
           sudden_change?: boolean
           swelling_level?: string
@@ -1020,6 +1023,28 @@ export type Database = {
       seed_private_plan: {
         Args: { p_reset?: boolean; p_start_date: string }
         Returns: string
+      }
+      submit_readiness_checkin: {
+        Args: {
+          p_cannot_bear_weight?: boolean
+          p_checkin_type: Database["public"]["Enums"]["checkin_type"]
+          p_confidence_score: number
+          p_notes?: string
+          p_pain_score: number
+          p_previous_next_morning_increase?: boolean
+          p_scheduled_session_id?: string
+          p_session_effort?: number
+          p_stiffness_change: string
+          p_sudden_change: boolean
+          p_swelling_level: string
+          p_walking_status: string
+        }
+        Returns: {
+          classification: Database["public"]["Enums"]["readiness_classification"]
+          id: string
+          rule_version: string
+          trigger_reasons: Json
+        }[]
       }
     }
     Enums: {

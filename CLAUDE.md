@@ -99,19 +99,39 @@ Complete:
   rows. Completing a strength workout now closes the scheduled session and stores one
   proposal per exercise; the player surfaces the newest proposal with Accept / Not now.
   Exhaustive boundary tests. See the notes below on the deliberate seams.
+- Roadmap 13, readiness capture and trusted storage. The Achilles readiness rules (docs/06
+  §6.2) are now a pure, versioned classifier (`domain/training/readinessClassification.ts`,
+  `RULE_VERSION` `readiness/v1`): from the six S-011 answers it returns red / amber / green
+  with red-over-amber-over-green precedence, structured British-English reasons, the inputs
+  used and a next action, and an explicit "unclassifiable" result (never green) when a
+  required answer is missing or invalid. The write path is trusted: the repo's first
+  `security definer` RPC (`submit_readiness_checkin`, migration `20260715090000`) captures
+  `auth.uid()`, RE-COMPUTES the classification from the raw answers in SQL (a faithful port
+  of the TS rules), and inserts the row with that server-computed classification, rule
+  version and trigger reasons. The client passes raw answers ONLY — it can neither set nor
+  override the classification, and `readiness_checkins` still has no client INSERT grant.
+  `features/readiness/` mirrors the other features (narrow backend calling the RPC, a hook,
+  pure S-011/S-015 views, Zod validation); offline answers are held in secure storage and
+  replayed on reconnect. All three `checkin_type`s go through the one RPC. A minimal, honest
+  result acknowledgement (icon+text, red professional-care copy, a non-diagnosis note) is
+  shown; the rich result screens and the red-blocks-session-start enforcement are roadmap 14.
+  A pgTAP test asserts the server classifies identically to the documented cases and that no
+  classification can be smuggled in. See the notes below on the R13/R14 split and the seams.
 
 Not started:
 
-- Roadmap 13 onwards (readiness forms, and the rest). Readiness (docs/06 §6.2) is the next
-  piece of work.
+- Roadmap 14 onwards (readiness result screens and enforcement, and the rest). Roadmap 14
+  (docs/06 §6.2 result screens, the full precedence/missing-input matrix, and the red-blocks-
+  session-start enforcement) is the next piece of work; the classifier and trusted storage it
+  builds on already exist from roadmap 13.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
-`schedulingRules.ts`, `exerciseCatalogue.ts` and `strengthProgression.ts` are the real
-modules so far (pure plan-date/label helpers, the weekly scheduling rules, the catalogue
-grouping and guide-section shaping, and the strength progression rules). The rest of the
-safety-critical rules engine (Achilles traffic-light logic, running progression, calorie
-adjustments) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of
-truth and every rule needs tests.
+`schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts` and
+`readinessClassification.ts` are the real modules so far (pure plan-date/label helpers, the
+weekly scheduling rules, the catalogue grouping and guide-section shaping, the strength
+progression rules, and the Achilles readiness classifier). The rest of the safety-critical
+rules engine (running progression, calorie adjustments) is still ahead. When you build it,
+`docs/06_RULES_ENGINE.md` is the source of truth and every rule needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
 
@@ -447,6 +467,70 @@ How the engine works and what it deliberately left for later:
   side (roadmap 17). The extension point is documented at the foot of `strengthProgression.ts`.
 - Surfacing beyond the player is a later step. Proposals are shown in the workout player at the
   next exposure; presenting accepted/held/reduced proposals in the weekly review is roadmap 22.
+
+## Readiness boundaries carried out of Roadmap 13
+
+How readiness capture works and what it deliberately left for later:
+
+- The trusted write path is the crux (docs/06 §6.1). `readiness_checkins` is granted only
+  `select` and `delete` to `authenticated`, **never `insert`** — deliberately, and unchanged
+  here. docs/06 §6.1 requires the classification be produced by the versioned rules and the
+  backend never trust a client-chosen one; a direct client insert could write any
+  classification (e.g. downgrading a red so a session it should not start becomes startable).
+  So the client never inserts a readiness row. It calls the repo's first `security definer`
+  function, `submit_readiness_checkin` (migration `20260715090000`), with the RAW ANSWERS
+  ONLY. That function captures `auth.uid()` itself, re-computes red/amber/green in SQL (a
+  faithful port of `readinessClassification.ts` — same thresholds, same precedence), and
+  inserts the row with the server-computed classification, `rule_version` and
+  `trigger_reasons`. There is no classification parameter, so a caller cannot supply or
+  override one. `security definer` (unlike `seed_private_plan`, which is `security invoker`)
+  lets the insert proceed despite the missing grant, while the explicit `auth.uid()` check
+  and `user_id = auth.uid()` write keep every row owner-scoped. Hardened like
+  `seed_private_plan`: `set search_path = ''`, everything schema-qualified, granted to
+  `authenticated` only. A pgTAP test (`supabase/tests/submit_readiness_checkin.test.sql`)
+  asserts representative red/amber/green inputs classify identically to the documented
+  expectations, that the function exposes no classification parameter, and that anon cannot
+  call it.
+- The R13 / R14 split. Roadmap 13 owns capturing the forms (S-011 pre-session, S-015
+  post-session, and next-morning — all three `checkin_type`s through the one RPC) and storing
+  them with a trustworthy classification, plus the pure classifier and a **minimal** honest
+  result acknowledgement (label conveyed by icon+text never colour alone, plain explanation,
+  allowed action, the red docs/07 §7.2 professional-care copy, and a non-diagnosis note).
+  Roadmap 14 owns the rich result screens, the exhaustive precedence/missing-input test
+  matrix, and the enforcement that a red result blocks a session from starting. The classifier
+  already returns "unclassifiable" (never green) for missing/invalid inputs so R14 can render
+  it; the acknowledgement is **not** wired into the Today/planner session-start flow — the
+  seam where R14 connects the block is flagged in `ReadinessResultView.tsx` (read the newest
+  pre-session classification for the scheduled session at session-start and enforce there).
+  Entry to the form is a standalone, non-gating "Readiness check" button on Today
+  (`app/(tabs)/today/readiness.tsx`), reachable now but not yet gating anything.
+- Storage shape. The six S-011 answers are `not null` on `readiness_checkins`, so all three
+  check-in types supply them (the S-015 "Achilles response / general discomfort" IS this
+  symptom questionnaire, taken after the session). The migration adds one nullable
+  `session_effort` column for the S-015 post-session self-report; reconciling it with the
+  still-unused `workout_logs.session_effort` (the roadmap 11 seam) is deferred. The
+  unclassifiable case is never stored: `classification` is a `not null` green/amber/red enum,
+  so the RPC **rejects** invalid/missing raw answers with an exception rather than persisting a
+  default — unclassifiable lives only in the pure classifier (to block form submission and for
+  R14's screens).
+- Offline. Readiness answers are self-reported health context (docs/07 treats all of it as
+  highly private), so a submission that cannot reach Supabase is held in **secure** device
+  storage (`lib/persistence/heldReadinessStore.ts`, reusing the onboarding-draft keychain
+  store) and replayed on reconnect, following the local-first spirit of the workout player.
+  Offline shows a clearly-labelled provisional result from the same pure rules so a red flag is
+  never hidden, but the stored/authoritative classification is always the server's. Scope: a
+  single held submission (the most recent), not a full multi-item queue — the fuller queue is a
+  noted seam.
+- The four declared seams (returned/held, not built here): (1) red blocking session start and
+  the full result screens are roadmap 14. (2) The amber "replace running with walking / cycling
+  / rest, reduce lower-body volume 30–50%" action is the activity substitution flow (roadmap 15) — the classifier returns the recommendation; performing the swap is not built. (3)
+  "Previous run produced a material next-morning increase" (an amber trigger) is an optional
+  input (`previousNextMorningIncrease`), dormant until there is next-morning history to feed it
+  — documented like the `schedulingRules.ts` readiness seam. (4) `amberReadiness` already feeds
+  `strengthProgression.ts`; once readiness rows exist a future step passes the latest
+  pre-session classification into that engine — **not** wired here. A fifth, smaller seam: "the
+  user cannot load the leg normally" (a red trigger, docs/06 §6.2) has no S-011 field, so it is
+  honoured as an optional `cannotBearWeight` input for a future form and otherwise dormant.
 
 ## Known small issues to clean up (not blocking)
 

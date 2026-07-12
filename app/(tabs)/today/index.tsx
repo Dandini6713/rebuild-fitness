@@ -1,7 +1,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback } from 'react';
 
-import { AppScreen, OfflineState } from '@/components/common';
+import { AppScreen, OfflineState, SecondaryButton } from '@/components/common';
 import { TodayView } from '@/features/today/TodayView';
 import { useToday } from '@/features/today/useToday';
 import { useNetworkStatus } from '@/lib/network/useNetworkStatus';
@@ -53,17 +53,29 @@ export default function TodayScreen() {
       {showOffline ? (
         <OfflineState description="Today's session and progress will appear here once you are back online." />
       ) : (
-        <TodayView
-          greeting={greeting}
-          onOpenPlayer={openPlayer}
-          onStart={(scheduledSessionId) =>
-            startSession(scheduledSessionId, openPlayer)
-          }
-          startError={startError}
-          starting={starting}
-          state={state}
-          todayIso={todayIso}
-        />
+        <>
+          <TodayView
+            greeting={greeting}
+            onOpenPlayer={openPlayer}
+            onStart={(scheduledSessionId) =>
+              startSession(scheduledSessionId, openPlayer)
+            }
+            startError={startError}
+            starting={starting}
+            state={state}
+            todayIso={todayIso}
+          />
+          {/*
+            Roadmap 13: a standalone entry to the readiness check (S-011). This does
+            NOT gate starting a session — roadmap 14 owns reading the latest
+            pre-session classification at session-start and blocking a red result.
+            Here it simply lets the user record and see a readiness result.
+          */}
+          <SecondaryButton
+            label="Readiness check"
+            onPress={() => router.push('/today/readiness?type=pre_session')}
+          />
+        </>
       )}
     </AppScreen>
   );
