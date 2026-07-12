@@ -4,11 +4,14 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthLoadingScreen } from '@/features/auth/AuthLoadingScreen';
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
 import { getAuthGuards } from '@/features/auth/authRouting';
+import { OnboardingProvider } from '@/features/onboarding/OnboardingProvider';
 
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootNavigator />
+      <OnboardingProvider>
+        <RootNavigator />
+      </OnboardingProvider>
     </AuthProvider>
   );
 }

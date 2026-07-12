@@ -926,7 +926,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      seed_private_plan: {
+        Args: { p_reset?: boolean; p_start_date: string }
+        Returns: string
+      }
     }
     Enums: {
       checkin_type: "pre_session" | "post_session" | "next_morning"
@@ -1083,3 +1086,4 @@ export const Constants = {
     },
   },
 } as const
+
