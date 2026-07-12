@@ -38,11 +38,19 @@ Complete:
   to `auth.uid()`, in one transaction, and is called on onboarding confirmation before the
   profile is finalised. The Plan tab now renders the first four weeks. See the notes below
   on what it consumed and the seams it left.
+- Roadmap 07, application shell. The five tabs already existed; this step added the three
+  remaining shared state components (`LoadingState`, `ErrorState`, `OfflineState` in
+  `components/common`, alongside the existing `EmptyState`) and a small offline hook
+  (`lib/network/useNetworkStatus.ts`, backed by `expo-network`, degrading to online on web).
+  Every tab now shows honest shell states in real British English: Today, Log and Progress
+  render empty/offline states describing what will live there (no invented sessions or
+  numbers), Plan routes its loading/error/offline paths through the new components, and More
+  keeps its working sign-out and diagnostics. See the notes below on the deliberate seams.
 
 Not started:
 
-- Roadmap 07 onwards (application shell tabs, Today screen, and the rest). This is the next
-  piece of work.
+- Roadmap 08 onwards (Today screen with real data, and the rest). This is the next piece of
+  work.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`
 is the first real module (pure plan-date and label helpers). The safety-critical rules
@@ -139,12 +147,41 @@ The onboarding feature lives in `features/onboarding/`; plan seeding and the pre
 `features/plan/` (repository seam + read model + view) with the pure helpers in
 `domain/training/planSchedule.ts`. `react-hook-form` (7.81.0) remains pinned.
 
-## Next up: Roadmap 07, application shell
+## Shell boundaries carried out of Roadmap 07
 
-Build out the tab shell and the Today screen against the now-seeded plan: surface today's
-scheduled session (template-backed for strength), the week ahead, and the appropriate
-loading/empty/error/offline states. The Plan tab preview from Roadmap 06 is the read model
-to build on.
+How the shell works and what it deliberately left for later:
+
+- Shared state components. `LoadingState`, `ErrorState` and `OfflineState` join the existing
+  `EmptyState` in `components/common` (exported from its `index.ts`). Each conveys status by
+  icon and text, never colour alone (`docs/09 §9.2/§9.8`): they reuse `StatusBadge` for the
+  icon+text status rather than re-inventing it. `ErrorState` uses the caution (amber) tone
+  and an assertive live region — a failed load is not a safety stop, so it is not red; red
+  stays reserved for genuine safety/destructive actions. `OfflineState` uses the info tone
+  and a polite live region because being offline is normal and recoverable. `ErrorState`
+  composing `EmptyState` was considered and rejected: `EmptyState` carries no status
+  semantics and no live-region announcement, so it would have been a lossy near-duplicate.
+- Offline detection. `lib/network/useNetworkStatus.ts` wraps `expo-network`'s
+  `useNetworkState` (chosen from `docs/04 §4.1`, installed with `expo install` so the SDK
+  version matches). The derivation is a pure, exhaustively tested `deriveIsOffline`: it only
+  reports offline on a definite negative signal (an undefined field stays online, so no
+  offline panel flashes on first render) and always reports online on web, where the signal
+  is not meaningful. Richer offline caching (showing already-loaded data while offline) is a
+  later concern; today the Plan tab only suppresses the offline panel once a plan is loaded.
+- Today is a shell, by design. Roadmap 08 ("Today screen with real data") owns wiring in the
+  scheduled session, nutrition targets, recent logs and the dominant "Start session" action.
+  This step left Today showing honest empty/offline states with real copy so 08 only has to
+  swap in data, not build the states. The seam is flagged in `app/(tabs)/today/index.tsx`.
+- Honest copy, no fake data. Today, Log and Progress show empty/offline states describing
+  what will live there; the previous demo content (an example "Strength A" card, "3 of 5"
+  progress) is gone. More keeps its working sign-out and Supabase diagnostics.
+
+## Next up: Roadmap 08, Today screen with real data
+
+Implement Today using the seeded scheduled sessions, current nutrition targets and recent
+logs. The primary action must start today's session. Add states for no plan, completed
+session, rest day, offline and query failure — the shell's empty/offline states and the
+`features/plan` read model are the starting points, and domain calculations must stay
+outside the component.
 
 ## Known small issues to clean up (not blocking)
 

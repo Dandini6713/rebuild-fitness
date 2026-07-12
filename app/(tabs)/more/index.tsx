@@ -29,7 +29,7 @@ export default function SettingsScreen() {
   return (
     <AppScreen eyebrow="Your preferences" title="Settings">
       <SectionHeader
-        description="Settings remain local placeholders in this design preview."
+        description="Profile, notifications and privacy settings open up as the app is built out. Signing out already works."
         title="Rebuild"
       />
       <Card>
