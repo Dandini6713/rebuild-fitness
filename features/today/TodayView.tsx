@@ -55,6 +55,7 @@ const integer = new Intl.NumberFormat('en-GB');
 
 type TodayViewProps = {
   greeting: string;
+  onOpenPlayer: (scheduledSessionId: string) => void;
   onStart: (scheduledSessionId: string) => void;
   startError: string | null;
   starting: boolean;
@@ -64,6 +65,7 @@ type TodayViewProps = {
 
 export function TodayView({
   greeting,
+  onOpenPlayer,
   onStart,
   startError,
   starting,
@@ -97,6 +99,7 @@ export function TodayView({
     <View style={{ gap: spacing.lg }}>
       <GreetingHeader greeting={greeting} todayIso={todayIso} />
       <SessionSection
+        onOpenPlayer={onOpenPlayer}
         onStart={onStart}
         session={session}
         startError={startError}
@@ -133,11 +136,13 @@ function GreetingHeader({
 }
 
 function SessionSection({
+  onOpenPlayer,
   onStart,
   session,
   startError,
   starting,
 }: {
+  onOpenPlayer: (scheduledSessionId: string) => void;
   onStart: (scheduledSessionId: string) => void;
   session: TodaySessionState;
   startError: string | null;
@@ -197,19 +202,28 @@ function SessionSection({
       </View>
 
       {session.inProgress ? (
-        <View accessibilityLiveRegion="polite" style={{ gap: spacing.xs }}>
-          <StatusBadge label="In progress" tone="info" />
+        <View style={{ gap: spacing.xs }}>
+          <View accessibilityLiveRegion="polite">
+            <StatusBadge label="In progress" tone="info" />
+          </View>
           <AppText tone="secondary">
             {
-              "You've started today's session. The guided session player arrives in a later update, so there's nothing more to do here yet."
+              "You've already started today's session. Pick up where you left off — your recorded sets are saved."
             }
           </AppText>
+          {/* Continue the workout_log that "Start session" created, in the guided
+              strength player (roadmap 11, S-012). */}
+          <PrimaryButton
+            accessibilityLabel="Continue today's session"
+            label="Continue session"
+            onPress={() => onOpenPlayer(session.session.id)}
+          />
         </View>
       ) : (
         <View style={{ gap: spacing.sm }}>
           {/* The primary action, visually dominant per docs/03: the filled
-              accent button. It records that the session has begun; the guided
-              player (S-012) is a later roadmap item. */}
+              accent button. It records that the session has begun (roadmap 08)
+              and then opens the guided player (roadmap 11). */}
           <PrimaryButton
             accessibilityLabel="Start today's session"
             label="Start session"
