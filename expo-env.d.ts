@@ -1,3 +1,3 @@
 /// <reference types="expo/types" />
 
-// This file is generated and maintained as part of the Expo TypeScript setup.
+// NOTE: This file should not be edited and should be in your git ignore

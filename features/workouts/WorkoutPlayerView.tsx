@@ -482,18 +482,19 @@ function SetInputsPanel({
 // Whether technique felt controlled on this set. A two-option choice conveyed by
 // text and a tick, never colour alone (docs/09 §9.2/§9.8). It records what the
 // lifter tells us; the progression rule only ever proposes an increase when
-// technique is marked controlled (docs/06 §6.4).
+// technique is marked controlled (docs/06 §6.4). An untouched control is null —
+// neither option is selected — so the lifter must choose deliberately.
 function TechniqueToggle({
   onSelect,
   value,
 }: {
   onSelect: (value: boolean) => void;
-  value: boolean;
+  value: boolean | null;
 }) {
   const { colours, radii, spacing, touchTargets } = useAppTheme();
   const options: { label: string; selected: boolean; next: boolean }[] = [
-    { label: 'Controlled', next: true, selected: value },
-    { label: 'Not controlled', next: false, selected: !value },
+    { label: 'Controlled', next: true, selected: value === true },
+    { label: 'Not controlled', next: false, selected: value === false },
   ];
   return (
     <View style={{ gap: spacing.xs }}>

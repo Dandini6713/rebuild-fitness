@@ -176,7 +176,9 @@ export type WorkoutPlayerBackend = {
     completedAtIso: string;
   }): Promise<{ error: BackendError }>;
   // Roadmap 12. Close the scheduled session so the weekly planner stops showing a
-  // finished session as planned. A plain owner-scoped update (like move/skip).
+  // finished session as planned. A plain owner-scoped status update — unlike
+  // move/skip/replace it does not stamp `source = 'user'`, because completing a
+  // planned session is not a user adjustment and must not rewrite its provenance.
   updateScheduledSessionStatus(input: {
     scheduledSessionId: string;
     userId: string;
@@ -1028,9 +1030,12 @@ export function createSupabaseWorkoutPlayerBackend(
     },
 
     async updateScheduledSessionStatus({ scheduledSessionId, status, userId }) {
+      // Only the status moves to 'completed'. `source` is deliberately left as it
+      // is: completing a planned session is not a user adjustment (unlike
+      // move/skip/replace), so it must not overwrite the session's provenance.
       const { error } = await client
         .from('scheduled_sessions')
-        .update({ source: 'user', status })
+        .update({ status })
         .eq('id', scheduledSessionId)
         .eq('user_id', userId);
       return { error };
@@ -1053,6 +1058,13 @@ export function createSupabaseWorkoutPlayerBackend(
         user_id: row.userId,
         workout_log_id: row.workoutLogId,
       });
+      // 23505 = unique violation on (workout_log_id, template_exercise_id): a
+      // retried completion re-evaluated the same exposure and its proposal is
+      // already stored. A benign duplicate, exactly as insertSet treats a replayed
+      // set — never surface it as an error.
+      if (error && error.code === '23505') {
+        return { error: null };
+      }
       return { error };
     },
 

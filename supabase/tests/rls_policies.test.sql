@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(13);
+select plan(15);
 
 create temporary table rls_mutation_results (
   operation text primary key,
@@ -82,6 +82,48 @@ values
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '11111111-1111-4111-8111-111111111111', 'User A plan', current_date),
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '22222222-2222-4222-8222-222222222222', 'User B plan', current_date);
 
+-- A template, template exercise and progression proposal per user, so the owner
+-- isolation of progression_proposals (roadmap 12) can be asserted the same way as
+-- profiles and health_context above.
+insert into public.workout_templates (id, user_id, name, session_type, is_system)
+values
+  ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', '11111111-1111-4111-8111-111111111111', 'User A template', 'strength', false),
+  ('dddddddd-dddd-4ddd-8ddd-dddddddddddd', '22222222-2222-4222-8222-222222222222', 'User B template', 'strength', false);
+
+insert into public.workout_template_exercises
+  (id, user_id, template_id, exercise_id, exercise_order, target_sets)
+values
+  (
+    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    (select id from public.exercises where slug = 'rls-test-exercise'),
+    1, 2
+  ),
+  (
+    'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    '22222222-2222-4222-8222-222222222222',
+    'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    (select id from public.exercises where slug = 'rls-test-exercise'),
+    1, 2
+  );
+
+insert into public.progression_proposals
+  (user_id, template_exercise_id, exercise_id, decision, rule_version)
+values
+  (
+    '11111111-1111-4111-8111-111111111111',
+    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    (select id from public.exercises where slug = 'rls-test-exercise'),
+    'hold', 'rls-proposal-a'
+  ),
+  (
+    '22222222-2222-4222-8222-222222222222',
+    'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    (select id from public.exercises where slug = 'rls-test-exercise'),
+    'hold', 'rls-proposal-b'
+  );
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -125,6 +167,27 @@ select is(
   (select affected_rows from rls_mutation_results where operation = 'delete_other_health_context'),
   0,
   'a user cannot delete another user health context'
+);
+
+select results_eq(
+  $$ select rule_version from public.progression_proposals order by rule_version $$,
+  array['rls-proposal-a'::text],
+  'progression proposals are isolated to their owner'
+);
+
+with changed as (
+  update public.progression_proposals
+  set status = 'dismissed'
+  where user_id = '22222222-2222-4222-8222-222222222222'
+  returning 1
+)
+insert into rls_mutation_results (operation, affected_rows)
+select 'update_other_proposal', count(*)::integer from changed;
+
+select is(
+  (select affected_rows from rls_mutation_results where operation = 'update_other_proposal'),
+  0,
+  'a user cannot update another user progression proposal'
 );
 
 select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);

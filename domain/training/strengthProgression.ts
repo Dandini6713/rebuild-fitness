@@ -265,9 +265,18 @@ function holdReasons(
         'Technique was not marked as controlled on every set, so hold the weight until it feels solid throughout.',
     });
   }
+  // A missing effort and a high effort are distinct facts, reported honestly as
+  // themselves: an unrecorded score is never described as "high".
+  if (exposure.sets.some((set) => set.effortScore === null)) {
+    reasons.push({
+      code: 'effort-not-recorded',
+      message:
+        'Effort was not recorded on at least one set, so keep the weight the same until every set has an effort score.',
+    });
+  }
   if (
     exposure.sets.some(
-      (set) => set.effortScore === null || set.effortScore >= EFFORT_HOLD_MIN,
+      (set) => set.effortScore !== null && set.effortScore >= EFFORT_HOLD_MIN,
     )
   ) {
     reasons.push({
@@ -276,12 +285,21 @@ function holdReasons(
         'Effort was high on at least one set, so keep the weight the same and let it feel more comfortable before adding load.',
     });
   }
+  // Likewise, a missing discomfort score is reported as unrecorded, never as
+  // discomfort being present.
+  if (exposure.sets.some((set) => set.discomfortScore === null)) {
+    reasons.push({
+      code: 'discomfort-not-recorded',
+      message:
+        'Discomfort was not recorded on at least one set, so keep the weight the same until every set has a discomfort score.',
+    });
+  }
   if (
     exposure.sets.some(
       (set) =>
-        set.discomfortScore === null ||
-        (set.discomfortScore > DISCOMFORT_INCREASE_MAX &&
-          set.discomfortScore < DISCOMFORT_REDUCE_MIN),
+        set.discomfortScore !== null &&
+        set.discomfortScore > DISCOMFORT_INCREASE_MAX &&
+        set.discomfortScore < DISCOMFORT_REDUCE_MIN,
     )
   ) {
     reasons.push({

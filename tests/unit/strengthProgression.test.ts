@@ -216,6 +216,22 @@ describe('strength progression — technique fail-safe', () => {
     ]);
     expect(result.decision).toBe('hold');
     expect(result.decision).not.toBe('increase');
+    // A missing score is reported as unrecorded, never as high effort.
+    const codes = result.reasons.map((reason) => reason.code);
+    expect(codes).toContain('effort-not-recorded');
+    expect(codes).not.toContain('effort-high');
+  });
+
+  it('holds when discomfort is null, describing it as not recorded rather than present', () => {
+    const result = evaluateStrengthProgression(config(), [
+      exposure(goodSet(), goodSet({ discomfortScore: null })),
+      goodExposure(),
+    ]);
+    expect(result.decision).toBe('hold');
+    expect(result.decision).not.toBe('increase');
+    const codes = result.reasons.map((reason) => reason.code);
+    expect(codes).toContain('discomfort-not-recorded');
+    expect(codes).not.toContain('discomfort-present');
   });
 });
 

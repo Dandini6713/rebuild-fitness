@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render } from '@testing-library/react-native';
 
+import { elapsedSeconds } from '@/domain/training/workoutTimer';
 import type { PlayerExerciseView } from '@/features/workouts/workoutPlayerRepository';
 import type {
   PlayerReady,
@@ -10,6 +11,14 @@ import {
   WorkoutPlayerView,
   type WorkoutPlayerCallbacks,
 } from '@/features/workouts/WorkoutPlayerView';
+
+// Drive the elapsed clock from a frozen start and "now" rather than a bare literal,
+// so the "3:05 elapsed" assertion is deterministic under any load: it is computed by
+// the same pure helper the app uses, not a magic number that a slow test could drift
+// away from. 10:00:00 → 10:03:05 is exactly 185 seconds → "3:05".
+const FROZEN_START_ISO = '2026-07-12T10:00:00.000Z';
+const FROZEN_NOW_MS = Date.parse('2026-07-12T10:03:05.000Z');
+const FROZEN_ELAPSED_SECONDS = elapsedSeconds(FROZEN_START_ISO, FROZEN_NOW_MS);
 
 const exercise = (
   overrides: Partial<PlayerExerciseView> = {},
@@ -30,7 +39,7 @@ const exercise = (
 
 const ready = (overrides: Partial<PlayerReady> = {}): PlayerReady => ({
   completedCount: 0,
-  elapsedSeconds: 185,
+  elapsedSeconds: FROZEN_ELAPSED_SECONDS,
   ending: false,
   endError: null,
   decidingProposal: false,

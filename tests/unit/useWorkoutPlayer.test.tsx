@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { describe, expect, it, jest } from '@jest/globals';
 
+import { evaluateStrengthProgression } from '@/domain/training/strengthProgression';
 import { useWorkoutPlayer } from '@/features/workouts/useWorkoutPlayer';
 import type {
   LoadResult,
@@ -130,6 +131,51 @@ describe('useWorkoutPlayer', () => {
       // The rest timer begins after a set is recorded.
       expect(state.rest.active).toBe(true);
     }
+  });
+
+  it('logs an untouched technique control as null, and such a set can never earn an increase', async () => {
+    const repo = repository();
+    const { result } = await renderPlayer(repo);
+    await waitFor(() => expect(result.current.state.status).toBe('ready'));
+
+    // Log a set without ever touching the technique control.
+    await act(async () => {
+      result.current.logSet();
+    });
+
+    const logged = jest.mocked(repo.logSet).mock.calls[0]?.[0];
+    // The untouched control persists as null — never assumed controlled.
+    expect(logged?.techniqueControlled).toBeNull();
+
+    // End to end: a set whose technique is null can never satisfy the increase
+    // standard, even at the top of the range with easy effort and no discomfort —
+    // technique alone must be marked controlled for an increase (docs/06 §6.4).
+    const decision = evaluateStrengthProgression(
+      {
+        repMax: 12,
+        repMin: 8,
+        singleExposureProgression: true,
+        targetSets: 1,
+        weightIncrementKg: 2.5,
+      },
+      [
+        {
+          sets: [
+            {
+              discomfortScore: 0,
+              effortScore: 7,
+              repetitions: 12,
+              techniqueControlled: logged?.techniqueControlled ?? null,
+              weightKg: logged?.weightKg ?? 40,
+            },
+          ],
+        },
+      ],
+    );
+    expect(decision.decision).not.toBe('increase');
+    expect(decision.reasons.map((reason) => reason.code)).toContain(
+      'technique-uncertain',
+    );
   });
 
   it('finishes the workout, passing the scheduled session and template so it can be closed and evaluated', async () => {

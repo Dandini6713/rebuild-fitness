@@ -39,9 +39,11 @@ export type SetInputs = {
   repetitions: number;
   effortScore: number | null;
   discomfortScore: number;
-  // Whether the lifter marks this set's technique as controlled. Defaults to true
-  // (most sets are); unchecking records honest evidence for the progression rule.
-  techniqueControlled: boolean;
+  // Whether the lifter marks this set's technique as controlled. Starts null — an
+  // untouched control is left unset, never assumed controlled — so the increase rule
+  // (docs/06 §6.4) only ever fires on a technique the lifter deliberately marked
+  // controlled. The lifter chooses "Controlled" or "Not controlled" explicitly.
+  techniqueControlled: boolean | null;
 };
 
 export type RestTimer = { active: boolean; remainingSeconds: number };
@@ -118,7 +120,7 @@ function defaultInputs(
     discomfortScore: 0,
     effortScore: null,
     repetitions: Math.max(0, repetitions),
-    techniqueControlled: true,
+    techniqueControlled: null,
     weightKg: Math.max(0, weightKg),
   };
 }
