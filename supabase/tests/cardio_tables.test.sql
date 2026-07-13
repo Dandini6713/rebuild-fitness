@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(22);
+select plan(23);
 
 -- Roadmap 16: the three cardio tables (owner isolation, the composite user_id FK
 -- behaviour) and the nine-stage seed (seed_cardio_stages: counts and durations).
@@ -154,6 +154,16 @@ select is(
      )),
   9,
   'every stage has a 300-second cool-down'
+);
+
+-- Roadmap 17: every seeded stage carries required_sessions (the documented
+-- default of 2), which the running progression engine reads.
+select is(
+  (select count(*)::integer from public.cardio_templates
+   where user_id = '77777777-7777-4777-8777-777777777777'
+     and stage_number is not null and required_sessions = 2),
+  9,
+  'every seeded stage has required_sessions = 2 (docs/06 §6.3 default)'
 );
 
 -- === A cardio log with the composite FK and owner isolation =================

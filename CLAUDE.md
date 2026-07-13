@@ -178,24 +178,49 @@ invoker` transactional RPC (like `seed_private_plan`, NOT a definer like the rea
   completion. Reached from Today's cardio-day "Start cardio session". See the notes below on the
   pure/device split, the resume-state-vs-summary distinction, and the GPS/progression/activity-
   typing seams.
+- Roadmap 17, running progression engine. A pure, versioned engine
+  (`domain/training/runningProgression.ts`, `RULE_VERSION` `running-progression/v1`) implements
+  docs/06 §6.3 exactly: from a stage's completed sessions, their reported efforts and the
+  readiness responses across them (pre/post/next-morning classifications and altered walking),
+  plus whether the user has confirmed readiness, it returns advance / repeat / regress / pause
+  with structured British-English reasons, the inputs used and a next action. Like strength
+  progression it PROPOSES and never applies. Precedence is safety-first (regress/pause outranks
+  repeat outranks advance); a red or altered-walking response can never yield advance or repeat;
+  a single amber holds the stage (repeat), two ambers regress; effort boundary is average ≤ 7 to
+  advance and a single 8+ repeats; missing inputs fail the advance test (fail-safe); stage 9 is
+  the ceiling (a would-be advance returns a clean "already at the final stage" repeat). Forward
+  migration `20260719090000` adds `cardio_templates.required_sessions` (a seeded default of 2)
+  and an owner-scoped `running_progression_proposals` table (dedicated, NOT a generalisation of
+  the strength `progression_proposals`), keyed on stage numbers and a `plan_week_id`.
+  `features/running/` mirrors the other features (narrow backend + read model, `useRunningProgression`
+  hook, pure `RunningProgressionView`), reached from a "Running progression" entry on Today; it
+  evaluates on demand, stores one proposal and surfaces the newest 'proposed' one with
+  Confirm-and-advance / Not-now. The dormant `evaluateVolumeIncrease` (schedulingRules.ts) is now
+  LIVE and fed: a running advance plus an accepted lower-body strength increase in the SAME plan
+  week surfaces the soft same-week volume warning. Exhaustive unit tests (each condition, the
+  precedence, the effort 7-vs-8 and amber once-vs-twice boundaries, the stage-9 ceiling, the
+  missing-input fail-safes) and a pgTAP test (owner isolation, no-delete grant, the plan-week FK,
+  anon denial). See the notes below on the confirmation model and the stage-application seam.
 
 Not started:
 
-- Roadmap 17 onwards (running progression — the engine that advances/repeats/regresses the nine
-  run-walk stages this roadmap only PLAYS — then the rest). For readiness, what remains is
-  prompting a pre-session check before every gated session (a declared seam) and, from roadmap
-  15, distinct cardio activity typing on the substitution replacement and the actual
-  next-morning reminder (roadmap 24).
+- Roadmap 18 onwards (the rest of the rules engine — calorie adjustments, weight trend — and the
+  remaining product surfaces). For running progression, what remains is APPLYING an accepted
+  stage advance to the forward schedule (a declared seam — see below) and choosing which stage a
+  scheduled cardio session plays (still the roadmap 16 seam: the player plays the lowest available
+  stage). For readiness, what remains is prompting a pre-session check before every gated session
+  (a declared seam) and, from roadmap 15, distinct cardio activity typing on the substitution
+  replacement and the actual next-morning reminder (roadmap 24).
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
 `schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts`,
-`readinessClassification.ts`, `activitySubstitution.ts` and `cardioIntervalPlayer.ts` are the
-real modules so far (pure plan-date/label helpers, the weekly scheduling rules, the catalogue
-grouping and guide-section shaping, the strength progression rules, the Achilles readiness
-classifier, the amber activity-substitution options, and the cardio interval scheduler + cue
-events + pause arithmetic). The rest of the safety-critical rules engine (running progression,
-calorie adjustments) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source
-of truth and every rule needs tests.
+`readinessClassification.ts`, `activitySubstitution.ts`, `cardioIntervalPlayer.ts` and
+`runningProgression.ts` are the real modules so far (pure plan-date/label helpers, the weekly
+scheduling rules, the catalogue grouping and guide-section shaping, the strength progression
+rules, the Achilles readiness classifier, the amber activity-substitution options, the cardio
+interval scheduler + cue events + pause arithmetic, and the running progression rules). The rest
+of the safety-critical rules engine (calorie adjustments, weight trend) is still ahead. When you
+build it, `docs/06_RULES_ENGINE.md` is the source of truth and every rule needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
 
@@ -766,6 +791,71 @@ How the cardio player works and what it deliberately left for later:
   link to a specific `cardio_template`; the templates are the natural home for that future
   per-session link, which roadmap 17 will wire. (4) The device audio/haptic adapter needs the
   simulator pass noted above.
+
+## Running progression boundaries carried out of Roadmap 17
+
+How the running progression engine works and what it deliberately left for later:
+
+- The engine is pure, versioned and only proposes (docs/06 §6.3). `evaluateRunningProgression`
+  (`domain/training/runningProgression.ts`, `RULE_VERSION` `running-progression/v1`) is the sibling
+  of `strengthProgression.ts`: it takes the current stage config (stage number, required sessions),
+  the count and reported efforts of completed sessions at that stage, the readiness responses
+  across them (pre/post/next-morning classification + altered-walking flag) and the user's
+  confirmation, and returns the §6.1 decision shape (advance / repeat / regress / pause with
+  reasons, inputs, rule version, next action). It never applies. Precedence is safety-first:
+  regress/pause outranks repeat outranks advance; a red response or altered walking after a session
+  can never yield advance or repeat; a single amber holds the stage (repeat), two ambers regress;
+  the user choosing to pause is a pause unless a safety trigger already forced a regress. Boundaries
+  proven by test: advance needs average effort ≤ 7 and a single 8+ repeats; amber once = repeat,
+  twice = regress.
+- Fail-safe on missing inputs, mirroring the strength engine's null handling. An absent or
+  unclassifiable pre-session classification, an unrecorded effort, or a missing confirmation all
+  fail the advance test — advancing is only ever proposed on positive evidence. The advance
+  criteria require: required sessions completed; every pre-session check present and green (at least
+  `requiredSessions` of them); no red post/next-morning; zero ambers; every effort recorded with an
+  average ≤ 7; and confirmation. Any gap is a fail-safe repeat.
+- The stage-9 ceiling. Stage 9 is the top of the nine-stage programme, so no advance is possible
+  from it. When every advance criterion is otherwise met at stage 9 the engine returns a clean
+  "already at the final stage" repeat (`already-final-stage`), never an advance to a stage that does
+  not exist. A red/altered-walking response still regresses from stage 9.
+- A DEDICATED proposal table, NOT a generalisation of the strength one. `running_progression_proposals`
+  (migration `20260719090000`) is modelled on `progression_proposals` (owner-scoped RLS with
+  select/insert/update but no delete; the proposed → accepted/dismissed + decided_at lifecycle) but
+  is keyed on `from_stage_number`, `to_stage_number` and `plan_week_id`. The strength table's FKs
+  are exercise-keyed and its RLS/tests are proven, so it was left untouched rather than widened.
+- `required_sessions` is a seeded default, expressed once. The migration adds
+  `cardio_templates.required_sessions` (not null, default 2, so existing rows backfill automatically)
+  and `seed_cardio_stages` writes it from the single `v_required_sessions` constant (all nine stages
+  use 2). docs/06 §6.3 does not state a number; 2 is a documented default that is trivial to change
+  in one place. The cardio_tables pgTAP test asserts every seeded stage carries it.
+- The now-LIVE same-week volume warning (docs/06 §6.5). The dormant `evaluateVolumeIncrease` predicate
+  in `schedulingRules.ts` is finally fed, not changed. `evaluateSameWeekVolumeWarning` maps a running
+  ADVANCE to `runningStageIncreased = true`; the repository supplies `lowerBodyVolumeIncreased` by
+  querying for an ACCEPTED strength `progression_proposals` row (decision `increase`, status `accepted`)
+  whose completing workout sits in the SAME `plan_week` and whose exercise is `body_region = 'lower_body'`.
+  When both hold, the soft conflict surfaces beside the advance proposal as a note — never a block
+  (§6.5 makes it soft, unlike the consecutive-runs hard rule). "Same week" is the same `plan_weeks` row
+  (keyed on `plan_week_id`). Tested to fire only when both increases coincide in one week.
+- How confirmation is modelled (the design choice). docs/06 §6.3 requires the user's explicit
+  confirmation to advance. That confirmation is the ACCEPT action ("Confirm and advance") on the
+  proposal: the on-demand evaluation passes `userConfirmedReadiness = true` so an objectively-eligible
+  stage yields an ADVANCE proposal to confirm, and nothing moves until the user accepts it — the
+  proposed → accepted lifecycle IS the confirmation gate. The engine's confirmation input still exists
+  and is tested with both values, protecting the contract for any future non-accepting caller (e.g. a
+  preview). `features/running/` evaluates on demand (surfacing an existing pending proposal first, so
+  reopening does not churn rows), reached from a "Running progression" button on Today
+  (`app/(tabs)/today/running.tsx`), with loading/no-programme/error/offline states.
+- The stage-application SEAM (declared, not built). Accepting an advance records the decision
+  (`status = 'accepted'`, `decided_at`) but does NOT move the stage the player plays. The base plan
+  does not yet link a scheduled cardio session to a stage (the roadmap 16 seam — the player always
+  plays the lowest available stage), so applying an accepted advance to the forward schedule is
+  heavier than a small change and is deferred. "Current stage" is derived as the staged template of
+  the user's most recent completed cardio session (lowest stage when none is completed). When a future
+  step wires the per-session stage link, an accepted advance becomes the point that link moves.
+- Declared seams left untouched: GPS/distance (still nullable/unused, roadmap seam); the next-morning
+  reminder (roadmap 24 — the engine READS next-morning responses but schedules nothing); distinct
+  cardio activity typing (roadmap 09/15/16 seam); and no change to the red block (14), the substitution
+  flow (15) or the cardio player's device adapter (16).
 
 ## Known small issues to clean up (not blocking)
 

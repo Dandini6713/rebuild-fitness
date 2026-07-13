@@ -255,6 +255,7 @@ export type Database = {
           estimated_minutes: number | null
           id: string
           name: string
+          required_sessions: number
           session_type: string
           stage_number: number | null
           updated_at: string
@@ -265,6 +266,7 @@ export type Database = {
           estimated_minutes?: number | null
           id?: string
           name: string
+          required_sessions?: number
           session_type?: string
           stage_number?: number | null
           updated_at?: string
@@ -275,6 +277,7 @@ export type Database = {
           estimated_minutes?: number | null
           id?: string
           name?: string
+          required_sessions?: number
           session_type?: string
           stage_number?: number | null
           updated_at?: string
@@ -810,6 +813,59 @@ export type Database = {
             columns: ["scheduled_session_id", "user_id"]
             isOneToOne: false
             referencedRelation: "scheduled_sessions"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      running_progression_proposals: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decision: string
+          from_stage_number: number
+          id: string
+          inputs: Json
+          plan_week_id: string | null
+          reasons: Json
+          rule_version: string
+          status: string
+          to_stage_number: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decision: string
+          from_stage_number: number
+          id?: string
+          inputs?: Json
+          plan_week_id?: string | null
+          reasons?: Json
+          rule_version: string
+          status?: string
+          to_stage_number: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decision?: string
+          from_stage_number?: number
+          id?: string
+          inputs?: Json
+          plan_week_id?: string | null
+          reasons?: Json
+          rule_version?: string
+          status?: string
+          to_stage_number?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "running_progression_proposals_plan_week_id_user_id_fkey"
+            columns: ["plan_week_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "plan_weeks"
             referencedColumns: ["id", "user_id"]
           },
         ]

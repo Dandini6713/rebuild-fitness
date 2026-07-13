@@ -94,6 +94,16 @@ export default function TodayScreen() {
             label="Readiness check"
             onPress={() => router.push('/today/readiness?type=pre_session')}
           />
+          {/*
+            The running progression surface (roadmap 17, docs/06 §6.3). On demand it
+            proposes advancing, repeating, regressing or pausing the current run-walk
+            stage from the user's completed sessions and readiness responses; advancing
+            needs their explicit confirmation. It only proposes — nothing is applied.
+          */}
+          <SecondaryButton
+            label="Running progression"
+            onPress={() => router.push('/today/running')}
+          />
         </>
       )}
     </AppScreen>
