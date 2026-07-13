@@ -212,8 +212,9 @@ export function ReadinessResultView({
           <>
             {state.scheduleNextMorning ? (
               <AppText tone="secondary" variant="caption">
-                We have noted that you would like a next-morning check. A
-                reminder will be added in a later update.
+                We have noted that you would like a next-morning check. If you
+                have next-morning reminders turned on in Notifications, we will
+                remind you in the morning.
               </AppText>
             ) : null}
             <PrimaryButton label="Done" onPress={onDone} />

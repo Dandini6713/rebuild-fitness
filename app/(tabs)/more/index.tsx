@@ -31,7 +31,7 @@ export default function SettingsScreen() {
   return (
     <AppScreen eyebrow="Your preferences" title="Settings">
       <SectionHeader
-        description="Profile, notifications and privacy settings open up as the app is built out. Signing out already works."
+        description="Profile and privacy settings open up as the app is built out. Notifications and signing out already work."
         title="Rebuild"
       />
       <SectionHeader
@@ -48,7 +48,11 @@ export default function SettingsScreen() {
       <Card>
         <StatusBadge label="Private beta" tone="info" />
         <SecondaryButton disabled label="Profile and goals" />
-        <SecondaryButton disabled label="Notifications" />
+        <SecondaryButton
+          accessibilityHint="Opens your notification settings."
+          label="Notifications"
+          onPress={() => router.push('/more/notifications')}
+        />
         <SecondaryButton disabled label="Privacy and help" />
         {signOutError ? (
           <AppText accessibilityLiveRegion="assertive">{signOutError}</AppText>

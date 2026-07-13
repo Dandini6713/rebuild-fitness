@@ -308,19 +308,39 @@ abv_percent / 1000` (568 ml at 5% ≈ 2.84), rounded to two decimals; calories a
   decision, rule version and evidence (docs/06 §6.10). `features/review/` gains the generation +
   confirm repository methods, `useWeeklyReview` and `WeeklyReviewView`. pgTAP for the confirm RPC
   (owner isolation, the audit written, atomicity, anon denied). See the notes below.
+- Roadmap 24, notifications. Local (never push) notifications with a per-type on/off the user
+  controls, following the pure-schedule / device-adapter split of the cardio player. The pure
+  `domain/notifications/notificationSchedule.ts` (no React, no I/O, no expo) computes, from the enabled
+  types + the relevant data + a reference `now`, the exact set of notifications that SHOULD be
+  scheduled — each a typed descriptor with a LOCAL fire time and its NON-SENSITIVE title/body (the copy
+  lives in ONE reviewed source, `NOTIFICATION_COPY`, so a privacy test can assert no health value ever
+  appears). Six INDEPENDENTLY-optional types (planned sessions, weigh-in, waist, weekly review, the
+  pre-session readiness check, and the next-morning check), each an owner-scoped boolean column on
+  `profiles` (migration `20260724090000`) defaulting OFF (opt-in). The thin device adapter
+  (`features/notifications/notificationAdapter.ts` interface + no-op, `deviceNotificationAdapter.ts`
+  expo-notifications, `createNotificationAdapter.ts` selector, lazily loaded) requests permission and
+  schedules; DENIED permission is handled gracefully (honest state, no-op scheduling, never a crash or
+  a nag). `notificationSync.ts` orchestrates permission → data → pure schedule → adapter idempotently
+  (cancel-all-then-apply, so recomputing never duplicates and cancels superseded). `useNotificationSettings`
+  - `NotificationSettingsView` (S-051, all §3.3 states) live on the More tab. This CLOSES the
+    next-morning reminder seam (roadmap 15) and adds the pre-session readiness reminder. First
+    notifications dependency: `expo-notifications@~57.0.3` (SDK-57 compatible via `expo install`). The
+    device adapter is the fourth device-verifiable surface (after cardio, dashboard, review) and needs a
+    simulator pass. See the notes below.
 
 Not started:
 
-- Roadmap 24 onwards. The invalidating-
+- Roadmap 25 onwards. The invalidating-
   event flag (illness/travel) still has no capture UI and is a declared seam (an optional engine input
   defaulting to "no event"; the calorie engine and the generation caller already honour it once a
   toggle exists — the natural home is a future settings surface). For running progression, what
   remains is
   APPLYING an accepted stage advance to the forward schedule (a declared seam — see below) and
   choosing which stage a scheduled cardio session plays (still the roadmap 16 seam: the player plays
-  the lowest available stage). For readiness, what remains is prompting a pre-session check before
-  every gated session (a declared seam) and, from roadmap 15, distinct cardio activity typing on the
-  substitution replacement and the actual next-morning reminder (roadmap 24). Apple
+  the lowest available stage). For readiness, the pre-session check is now PROMPTED by an optional
+  reminder (roadmap 24) but is still not a hard gate that forces the check before every gated session;
+  from roadmap 15, distinct cardio activity typing on the substitution replacement remains a seam. The
+  next-morning reminder is now built (roadmap 24). Apple
   Health / HealthKit measurement import is roadmap 27 — all measurements are manual for now.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
@@ -1398,6 +1418,80 @@ How the weekly-review screen and the confirm flow work, and what they deliberate
   not part of the roadmap-22 review model, so "what needs attention"/"safety" surface the calorie
   floor-clamp professional-review escalation and adherence/logging notes rather than a red readiness
   item; wiring readiness history into the review is a future step.
+
+## Notifications boundaries carried out of Roadmap 24
+
+How local notifications work and what they deliberately left for later:
+
+- The pure-schedule / device-adapter split is the crux, mirroring the roadmap-16 cardio player exactly.
+  The SCHEDULING DECISION is a pure module (`domain/notifications/notificationSchedule.ts`): no React, no
+  I/O, no expo import. `computeNotificationSchedule` takes the enabled types, the relevant data
+  (upcoming planned sessions, a session flagged `next_morning_check_expected`, the last weigh-in/waist
+  local days) and a reference `now`, and returns the exact set of notifications that SHOULD be scheduled
+  — each a typed `ScheduledNotification` with a LOCAL fire time (`LocalDateTime` components, never a raw
+  UTC instant) and its non-sensitive title/body. It is exhaustively unit-tested (fire times on the local
+  day, each type independently on/off, the past-fire-time skip, the next-morning-after-flagged-session,
+  the weekly-review weekday, the weigh-in cadence, key uniqueness). The device EFFECT is a thin adapter
+  behind a narrow interface (`features/notifications/notificationAdapter.ts`: interface + a no-op default
+  for tests/web) with the real `deviceNotificationAdapter.ts` (expo-notifications: request permission,
+  schedule, cancel) chosen by `createNotificationAdapter.ts` and loaded LAZILY (via
+  `getDefaultNotificationAdapter`) so expo-notifications never enters a test or web bundle. Tests inject a
+  recording adapter and assert descriptor ROUTING, never OS delivery. `notificationSync.ts` is the
+  orchestration seam (permission → data → pure schedule → adapter), tested against a mock.
+- The device adapter is the FOURTH device-verifiable surface (after cardio, dashboard, review) and a
+  green CI does NOT close it. Static gates cannot verify that a notification actually fires at its local
+  time, that a denied permission prompt behaves, or that toggling a type off cancels its pending
+  notifications. Signing roadmap 24 off fully means a simulator/device pass: grant permission and confirm
+  each enabled reminder arrives at its local fire time, deny permission and confirm graceful no-op, and
+  toggle a type off and confirm its notifications are cancelled.
+- PER-TYPE, INDEPENDENTLY OPTIONAL, all defaulting OFF. Six owner-scoped boolean columns on `profiles`
+  (`notify_sessions`, `notify_weigh_in`, `notify_waist`, `notify_weekly_review`, `notify_readiness`,
+  `notify_next_morning`; migration `20260724090000`, following the roadmap-20/22 config-column pattern),
+  each toggled by a single-column owner-scoped UPDATE under the existing profiles RLS (no trusted RPC —
+  these are the user's own preferences with no safety rule to violate; the pure engine already made every
+  safety decision). Turning one on/off never touches another (proven by pgTAP and the repository test).
+  DEFAULT OFF is deliberate: notifications are an opt-in convenience the user has not asked for, and the
+  OS permission must be granted separately; a private-beta app must not start pinging the user (least of
+  all with the health-adjacent readiness/next-morning reminders) without consent (docs/07 §7.7).
+- GRACEFUL DENIED PERMISSION is a hard requirement, honoured throughout. The adapter reports the honest
+  OS state (`granted` / `denied` / `undetermined`); `syncNotifications` is a no-op when permission is not
+  granted (returns `permission-not-granted`, schedules nothing, never errors); every adapter method is
+  best-effort and swallows failures. The S-051 screen reflects the real state ("Notifications are off in
+  system settings", with a route to system settings via `Linking.openSettings`), offers a clear,
+  declinable "Turn on notifications" only when undetermined, and shows a partial/holding banner
+  ("reminders will not appear until…") when preferences are saved but permission is not granted. A toggle
+  still SAVES while denied — it just does not schedule.
+- NO SENSITIVE HEALTH DETAILS IN TEXT is a standing hard rule (docs/07). Every title/body comes from the
+  single reviewed source `NOTIFICATION_COPY` in the pure module — deliberately generic ("You have a
+  session planned today.", "Your weekly check-in is ready when you are.") — never a weight value, a
+  readiness classification (red/amber/green), an Achilles/injury detail, a calorie/target number, or even
+  the demanding NATURE of a session. A REQUIRED privacy test scans every generated body+title against a
+  forbidden vocabulary (any digit, kg/kcal/calorie/protein/weight, red/amber/green, achilles/tendon/
+  injury/pain, strength/running) and fails on any hit. Treat any health value in notification copy as a
+  bug; the single copy source is the one place to audit.
+- IDEMPOTENT rescheduling. The adapter cancels ALL app-scheduled notifications then applies the current
+  set (cancel-and-replace), so recomputing and re-applying never duplicates and always cancels superseded
+  notifications (proven against the recording mock). `useNotificationSettings` reschedules on open, on
+  every toggle, and when permission is granted. The near-horizon approach is a DECLARED choice: the pure
+  module schedules the next 14 days and the hook reschedules on app open to keep the window filled, rather
+  than fighting the OS scheduling primitives for far-future recurring notifications. Fire times are named,
+  documented constants (sessions 08:00, readiness 07:00 before the session, next-morning 08:00, weigh-in
+  07:30 weekly, waist 07:30 fortnightly, weekly review Sunday 18:00), adjustable in one place; the docs do
+  not prescribe times.
+- Gating mirrors the app's other gates. The readiness reminder fires only for gated sessions
+  (`session_type in ('running','strength')`, the classifySession / start_scheduled_session convention);
+  cardio, rest and Achilles days are never reminded to pre-check. The weigh-in/waist cadences are
+  data-aware (anchored on the last measurement's LOCAL day + the interval), reusing `toIsoDate` for the
+  device-local sense of "today" so a reminder fires on the user's local day, never a raw UTC day.
+- CLOSED seams: the roadmap-15 next-morning reminder (the `ReadinessResultView` "a reminder will be added
+  in a later update" note now points to the Notifications toggle) and a PROMPT for the pre-session
+  readiness check. Declared seams left untouched: push / remote notifications (LOCAL ONLY, per the
+  prompt); the export/deletion screen (roadmap 25); a hard gate FORCING the pre-session check (the
+  reminder prompts, it does not force); distinct cardio activity typing on a substitution (roadmap 15/16
+  seam); the invalidating-event capture UI (a future settings surface, which is also the natural home for
+  a fuller notification-settings surface). The React hook holds the adapter/repository/clock in refs
+  synced by an effect and derives `loadState` during render, so a caller passing a fresh adapter each
+  render can neither re-arm the load effect nor loop it (a lesson from an initial infinite-loop bug).
 
 ## Known small issues to clean up (not blocking)
 

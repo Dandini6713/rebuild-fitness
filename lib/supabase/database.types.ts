@@ -762,6 +762,12 @@ export type Database = {
           date_of_birth: string | null
           display_name: string | null
           height_cm: number | null
+          notify_next_morning: boolean
+          notify_readiness: boolean
+          notify_sessions: boolean
+          notify_waist: boolean
+          notify_weekly_review: boolean
+          notify_weigh_in: boolean
           onboarding_completed_at: string | null
           preferred_distance_unit: string
           preferred_weight_unit: string
@@ -778,6 +784,12 @@ export type Database = {
           date_of_birth?: string | null
           display_name?: string | null
           height_cm?: number | null
+          notify_next_morning?: boolean
+          notify_readiness?: boolean
+          notify_sessions?: boolean
+          notify_waist?: boolean
+          notify_weekly_review?: boolean
+          notify_weigh_in?: boolean
           onboarding_completed_at?: string | null
           preferred_distance_unit?: string
           preferred_weight_unit?: string
@@ -794,6 +806,12 @@ export type Database = {
           date_of_birth?: string | null
           display_name?: string | null
           height_cm?: number | null
+          notify_next_morning?: boolean
+          notify_readiness?: boolean
+          notify_sessions?: boolean
+          notify_waist?: boolean
+          notify_weekly_review?: boolean
+          notify_weigh_in?: boolean
           onboarding_completed_at?: string | null
           preferred_distance_unit?: string
           preferred_weight_unit?: string
