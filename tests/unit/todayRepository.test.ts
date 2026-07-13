@@ -111,6 +111,54 @@ describe('today repository — load', () => {
     expect(fetchTemplates).not.toHaveBeenCalled();
   });
 
+  it('shows the live replacement, not the replaced original, after an amber swap', async () => {
+    // Roadmap 15: a substitution leaves the original 'replaced' alongside its live
+    // 'planned' replacement on the same date. Today shows the replacement and the
+    // superseded original does not count towards adherence.
+    const repo = createTodayRepository(
+      backend({
+        fetchWeekSessions: async () => ({
+          data: [
+            {
+              id: 's-orig',
+              scheduled_date: '2026-07-15',
+              session_type: 'strength',
+              status: 'replaced',
+              template_id: null,
+            },
+            {
+              id: 's-repl',
+              scheduled_date: '2026-07-15',
+              session_type: 'cardio',
+              status: 'planned',
+              template_id: null,
+            },
+          ],
+          error: null,
+        }),
+      }),
+    );
+
+    const result = await repo.load(TODAY);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') {
+      return;
+    }
+    expect(result.data.session).toEqual({
+      inProgress: false,
+      kind: 'active',
+      session: {
+        id: 's-repl',
+        scheduledDate: '2026-07-15',
+        sessionType: 'cardio',
+        status: 'planned',
+        templateName: null,
+      },
+    });
+    // Only the live replacement counts as planned; the replaced original is excluded.
+    expect(result.data.adherence.planned).toBe(1);
+  });
+
   it('marks today completed when a matching log is completed', async () => {
     const repo = createTodayRepository(
       backend({

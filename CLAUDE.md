@@ -138,20 +138,42 @@ Complete:
   running and strength; green/amber/no-check permit; a later non-red check clears a prior red;
   cardio/achilles are never gated; a blocked start writes no row; a direct client insert is
   denied). See the notes below on the enforcement boundaries and seams.
+- Roadmap 15, amber activity substitution. After an amber readiness result the user can swap
+  the demanding session for a gentler option (docs/06 §6.2): flat walking, easy cycling, the
+  cross-trainer or rest. This is the amber SWAP, distinct from the roadmap-14 red BLOCK — it
+  is an action the user opts into, not a safety gate, so it needs no server ENFORCEMENT, only
+  an ATOMIC write. The crux is `substitute_session` (migration `20260717090000`), a `security
+invoker` transactional RPC (like `seed_private_plan`, NOT a definer like the readiness
+  functions — the user owns every row and RLS is the right guard). It performs a LINKED
+  replacement, NOT the planner's in-place edit: it marks the original `scheduled_sessions`
+  row `replaced` (preserved as the audit trail) and inserts a NEW row for the same date and
+  plan week with `replacement_for_id` back to the original, `source = 'user'`,
+  `reschedule_reason` recording the amber result and chosen activity, and status `planned` —
+  the first real use of `replacement_for_id` and the `replaced` status. Both writes are one
+  transaction (all-or-nothing, so no orphaned `replaced` session), the original is locked
+  `for update` and must be `planned` (a second substitution fails cleanly), and only gated
+  (`running`/`strength`) sessions are substitutable. `features/readiness/` gains the narrow
+  backend + `useSessionSubstitution` hook + pure `SubstitutionOptionsView`, wired into the
+  amber branch of `ReadinessResultView`; the options are pure/tested in
+  `domain/training/activitySubstitution.ts`. Offline fails honestly (the write is
+  server-side), never a pretend swap. A pgTAP test proves the atomic replaced+linked
+  insert, the double-substitution and invalid-type guards, gating, owner isolation and anon
+  denial. See the notes below on the cardio-typing, next-morning and volume-reduction seams.
 
 Not started:
 
-- Roadmap 15 onwards (the activity/equipment substitution flow, then the rest). The readiness
-  classifier, trusted storage and the red session-start block all exist now (roadmap 13/14);
-  what remains for readiness is the amber activity swap (roadmap 15) and prompting a
-  pre-session check before every gated session (a declared seam, see the notes below).
+- Roadmap 16 onwards (the cardio interval player and distinct cardio activity types, then the
+  rest). For readiness, what remains is prompting a pre-session check before every gated
+  session (a declared seam) and, from roadmap 15, distinct cardio activity typing on the
+  substitution replacement and the actual next-morning reminder (roadmap 24).
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
-`schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts` and
-`readinessClassification.ts` are the real modules so far (pure plan-date/label helpers, the
-weekly scheduling rules, the catalogue grouping and guide-section shaping, the strength
-progression rules, and the Achilles readiness classifier). The rest of the safety-critical
-rules engine (running progression, calorie adjustments) is still ahead. When you build it,
+`schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts`,
+`readinessClassification.ts` and `activitySubstitution.ts` are the real modules so far (pure
+plan-date/label helpers, the weekly scheduling rules, the catalogue grouping and guide-section
+shaping, the strength progression rules, the Achilles readiness classifier, and the amber
+activity-substitution options). The rest of the safety-critical rules engine (running
+progression, calorie adjustments) is still ahead. When you build it,
 `docs/06_RULES_ENGINE.md` is the source of truth and every rule needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
@@ -597,6 +619,61 @@ How the red block works and what it deliberately left for later:
   the swap. (3) Feeding the latest pre-session classification into `strengthProgression.ts`
   (the `amberReadiness` hold) is still a later step — the engine already honours it when
   supplied, but no code passes it in yet.
+
+## Activity substitution boundaries carried out of Roadmap 15
+
+How the amber swap works and what it deliberately left for later:
+
+- The linked-replacement model is the crux, and it is NOT the planner's in-place replace.
+  `features/plan` `replaceScheduledSession` MUTATES a session's type in place; that is wrong
+  for readiness, where the original must survive. `substitute_session` instead PRESERVES the
+  original (marks it `status = 'replaced'`, untouched otherwise — it is the audit trail and
+  the record of what was originally planned) and INSERTS A NEW `scheduled_sessions` row for
+  the same `scheduled_date` and `plan_week_id`, with `replacement_for_id` pointing back to the
+  original, `source = 'user'`, `reschedule_reason` recording the amber result and chosen
+  activity, and status `planned`. This is the first real use of `replacement_for_id` and the
+  `replaced` status (both added, unused, in `20260711090200`). Migration `20260717090000`.
+- Why an INVOKER RPC, not a DEFINER one. The red block (roadmap 14) is a safety gate the
+  client must not be able to violate, so `start_scheduled_session` is `security definer` plus
+  a revoked INSERT grant — enforcement the client cannot route around. The amber swap is
+  different in kind: it is an action the user OPTS INTO, over their OWN rows, so ordinary
+  row-level security is exactly the right guard and no privilege escalation is needed. Hence
+  `substitute_session` is `security invoker` (like `seed_private_plan`). What it still needs
+  is ATOMICITY: two client writes (mark replaced + insert replacement) could half-fail and
+  orphan a `replaced` session with no replacement, so both happen in ONE transaction (the
+  function body). The original is locked `for update` and must still be `planned`, so a
+  second substitution of an already-`replaced` session fails cleanly and creates no second
+  row (this also serialises concurrent calls). Only gated (`running`/`strength`) sessions are
+  substitutable, mirroring `classifySession` and the start RPC's gating. Hardened like the
+  others: `search_path = ''`, schema-qualified, granted to `authenticated` only, anon revoked.
+- The cardio-activity-typing seam. The base plan types all low-impact cardio as one `cardio`
+  session_type (the roadmap 09 seam — walks, bikes and run-walks are one bucket). So a walk /
+  bike / cross-trainer substitution creates a `cardio`-typed replacement with the SPECIFIC
+  activity recorded in `reschedule_reason` (via `buildSubstitutionReason` in
+  `domain/training/activitySubstitution.ts`), and a rest substitution creates a `rest`-typed
+  one. `substitute_session` accepts only `cardio` or `rest` as the new type; it does NOT
+  invent walking/bike/cross-trainer types — that is roadmap 16's (the cardio interval player
+  and distinct cardio activity typing). When roadmap 16 lands, the replacement's type simply
+  becomes specific; the linked-replacement mechanism does not change.
+- The next-morning check: LIGHT version done, fuller version deferred. docs/06 §6.2 says
+  "schedule a next-morning check". There is no reminder/scheduling engine yet (notifications
+  are roadmap 24), so the honest, minimal record is a new nullable
+  `scheduled_sessions.next_morning_check_expected` flag (added in the same migration), set on
+  the replacement (the hook always passes `expectNextMorningCheck: true` for an amber swap).
+  The app can later surface that a next-morning check is expected for that session; building
+  the reminder itself is the DECLARED SEAM for roadmap 24.
+- What this did NOT do (declared seams): (1) distinct cardio activity types and the cardio
+  interval player (roadmap 16). (2) notification reminders for the next-morning check
+  (roadmap 24) — only the expectation flag is recorded. (3) the "reduce lower-body volume
+  30–50%" half of the amber result — that is a strength-volume adjustment, not an activity
+  swap, and belongs with the progression/review work (roadmap 22); it is NOT built here. (4)
+  no change to the red block (roadmap 14) — left untouched.
+- How Today and the planner reflect a swap. Both read sessions by date range with no status
+  filter, so the planner naturally shows the `replaced` original (a "Replaced" badge) beside
+  its live replacement. Today's read model now prefers the non-`replaced` session for the day
+  and excludes `replaced` originals from weekly adherence (a small, tested change in
+  `features/today/todayRepository.ts`), so Today shows the replacement, not the superseded
+  original, and a swap does not drag adherence down.
 
 ## Known small issues to clean up (not blocking)
 

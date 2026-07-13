@@ -232,8 +232,16 @@ export function createTodayRepository(backend: TodayBackend) {
         weekLogs = logResult.data ?? [];
       }
 
+      // An amber activity substitution (roadmap 15) leaves the original session
+      // 'replaced' on the same date as its live replacement. Prefer the live one so
+      // Today shows the replacement, with the superseded original only in the planner's
+      // history.
+      const todaysSessions = weekSessions.filter(
+        (session) => session.scheduled_date === todayIso,
+      );
       const todaysRaw =
-        weekSessions.find((session) => session.scheduled_date === todayIso) ??
+        todaysSessions.find((session) => session.status !== 'replaced') ??
+        todaysSessions[0] ??
         null;
 
       let templateName: string | null = null;
@@ -268,10 +276,15 @@ export function createTodayRepository(backend: TodayBackend) {
       );
 
       const adherence = computeWeeklyAdherence(
-        weekSessions.map((sessionRow) => ({
-          id: sessionRow.id,
-          sessionType: sessionRow.session_type,
-        })),
+        // A 'replaced' original (roadmap 15 substitution) is superseded by its
+        // replacement, so it does not count towards what there is to adhere to; the
+        // replacement it created does.
+        weekSessions
+          .filter((sessionRow) => sessionRow.status !== 'replaced')
+          .map((sessionRow) => ({
+            id: sessionRow.id,
+            sessionType: sessionRow.session_type,
+          })),
         weekLogs.map((log) => ({
           scheduledSessionId: log.scheduled_session_id,
           status: log.status,

@@ -30,13 +30,17 @@ import {
 } from '@/domain/training/readinessClassification';
 import { useAppTheme } from '@/theme/useAppTheme';
 
+import type { SubstitutionActivity } from '@/domain/training/activitySubstitution';
+
 import {
   CLASSIFICATION_HEADING,
   CLASSIFICATION_LABEL,
   CLASSIFICATION_TONE,
   NON_DIAGNOSIS_NOTE,
 } from './readinessCopy';
+import { SubstitutionOptionsView } from './SubstitutionOptionsView';
 import type { ReadinessResultState } from './useReadiness';
+import type { SessionSubstitutionState } from './useSessionSubstitution';
 
 function ReasonList({ reasons }: { reasons: ReadinessReason[] }) {
   const { spacing } = useAppTheme();
@@ -102,16 +106,27 @@ function ClassificationCard({
   );
 }
 
+// The amber activity-substitution offer, supplied by the screen when there is a gated
+// session to swap (docs/06 §6.2). Optional: without it — e.g. a standalone readiness
+// check with no session attached — the amber result renders without the offer.
+export type SubstitutionOffer = {
+  state: SessionSubstitutionState;
+  onSelect: (activity: SubstitutionActivity) => void;
+  onReset: () => void;
+};
+
 export type ReadinessResultViewProps = {
   state: ReadinessResultState;
   onReset: () => void;
   onDone: () => void;
+  substitution?: SubstitutionOffer;
 };
 
 export function ReadinessResultView({
   onDone,
   onReset,
   state,
+  substitution,
 }: ReadinessResultViewProps) {
   const { spacing } = useAppTheme();
 
@@ -164,6 +179,13 @@ export function ReadinessResultView({
     // the user next tries to start the affected session, and shown there by
     // ReadinessBlockCard (roadmap 14). Recording a red result here does not, on its
     // own, open or close anything.
+    // An amber result with a session to swap offers the activity substitution
+    // (docs/06 §6.2): the gentler-option choices replace the demanding session with a
+    // linked replacement. The offer records that a next-morning check is expected, so
+    // the separate "we noted a next-morning check" caption is not repeated here.
+    const showSubstitution =
+      state.result.classification === 'amber' && substitution !== undefined;
+
     return (
       <View style={{ gap: spacing.md }}>
         <ClassificationCard
@@ -171,14 +193,33 @@ export function ReadinessResultView({
           provisional={false}
           reasons={state.result.reasons}
         />
-        {state.scheduleNextMorning ? (
-          <AppText tone="secondary" variant="caption">
-            We have noted that you would like a next-morning check. A reminder
-            will be added in a later update.
-          </AppText>
-        ) : null}
-        <PrimaryButton label="Done" onPress={onDone} />
-        <SecondaryButton label="Redo check" onPress={onReset} />
+        {showSubstitution && substitution ? (
+          <>
+            <SubstitutionOptionsView
+              onDone={onDone}
+              onReset={substitution.onReset}
+              onSelect={substitution.onSelect}
+              state={substitution.state}
+            />
+            {substitution.state.status === 'idle' ? (
+              <>
+                <SecondaryButton label="Not now" onPress={onDone} />
+                <SecondaryButton label="Redo check" onPress={onReset} />
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {state.scheduleNextMorning ? (
+              <AppText tone="secondary" variant="caption">
+                We have noted that you would like a next-morning check. A
+                reminder will be added in a later update.
+              </AppText>
+            ) : null}
+            <PrimaryButton label="Done" onPress={onDone} />
+            <SecondaryButton label="Redo check" onPress={onReset} />
+          </>
+        )}
       </View>
     );
   }

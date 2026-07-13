@@ -681,6 +681,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          next_morning_check_expected: boolean
           plan_week_id: string | null
           replacement_for_id: string | null
           reschedule_reason: string | null
@@ -695,6 +696,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          next_morning_check_expected?: boolean
           plan_week_id?: string | null
           replacement_for_id?: string | null
           reschedule_reason?: string | null
@@ -709,6 +711,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          next_morning_check_expected?: boolean
           plan_week_id?: string | null
           replacement_for_id?: string | null
           reschedule_reason?: string | null
@@ -1049,6 +1052,16 @@ export type Database = {
           rule_version: string
           trigger_reasons: Json
         }[]
+      }
+      substitute_session: {
+        Args: {
+          p_expect_next_morning_check?: boolean
+          p_new_template_id?: string
+          p_new_type: string
+          p_original_session_id: string
+          p_reason?: string
+        }
+        Returns: string
       }
     }
     Enums: {
