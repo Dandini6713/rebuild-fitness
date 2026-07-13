@@ -264,14 +264,40 @@ abv_percent / 1000` (568 ml at 5% ≈ 2.84), rounded to two decimals; calories a
   features (narrow repository + `useProgressDashboard` hook + pure views), with a bento grid of unequal
   tiles, one evergreen accent, and light/dark free from the semantic tokens. The weekly review
   (roadmap 22) is a separate screen that will reuse these calculations. See the notes below.
+- Roadmap 22, weekly review & calorie adjustment CALCULATIONS (the interface is roadmap 23). The
+  load-bearing part is the pure, versioned calorie-adjustment ELIGIBILITY engine
+  (`domain/nutrition/calorieAdjustment.ts`, `RULE_VERSION` `calorie-adjustment/v1`) implementing docs/06
+  §6.7 exactly. It is FAIL-SAFE FIRST: an ELIGIBILITY GATE runs before any adjustment, and ALL of it
+  must hold or the result is `not-eligible` with NO calorie change — ≥14 days since the current target
+  began, weight logging meeting the roadmap-18 trend engine's OWN sufficiency (reused, not re-derived),
+  nutrition logged on ≥10 of 14 LOCAL days (the roadmap-19 local-day count the fix was protecting), no
+  invalidating-event flag, and `adaptive_adjustments_enabled` true. Any missing/unknown input a gate
+  needs counts as unmet, so INSUFFICIENT LOGGING ALWAYS MEANS NO CHANGE (the non-negotiable property,
+  exhaustively tested in every form). Only if every gate passes are the §6.7 adjustment rules applied
+  (loss within 0.2–0.6 kg/wk → no change; loss < 0.1 kg/wk with adherence ≥ 80% or weight increasing →
+  propose a bounded reduction; loss > 0.8 kg/wk → propose an increase plus a review-logging note), the
+  resulting target CLAMPED to the `calorie_floor` with a professional-review note (never silently
+  breached), and NOTHING is applied — it proposes, like the strength/running engines. ONE forward
+  migration (`20260722090000`) adds the two §6.7 config values to `profiles`: `calorie_floor` (integer,
+  not null, default 1500) and `adaptive_adjustments_enabled` (boolean, not null, default true).
+  The §6.8 protein weekly report (`domain/nutrition/proteinReport.ts`, `protein-report/v1`) is a pure
+  seven-day average + days-within-10%-of-target, tested at the ±10% boundary. The weekly-review
+  ASSEMBLY (`domain/review/weeklyReview.ts`, `weekly-review/v1`) shapes the metrics + recommendations
+  the `weekly_reviews` jsonb stores, each recommendation carrying its EVIDENCE and RULE VERSION; it
+  SURFACES the strength/running proposals (READ from their tables, not re-run) alongside the calorie
+  decision, and reuses `computeWeeklyAdherence` and `summariseAlcoholWeek`. `features/review/` is a thin
+  owner-scoped repository (read/write `weekly_reviews` + a latest-review accessor); the review SCREEN
+  and accept/dismiss are roadmap 23. pgTAP for the two profiles columns and weekly_reviews owner
+  isolation. See the notes below.
 
 Not started:
 
-- Roadmap 22 onwards (the rest of the rules engine — calorie adjustments (docs/06 §6.7, which will
-  CONSUME the roadmap-18 weight trend and the roadmap-19 targets/logs) and the protein weekly-average
-  report (§6.8) — and the remaining product surfaces including the weekly
-  review, roadmap 22, which will CONSUME the roadmap-20 alcohol data and REUSE the roadmap-21 dashboard
-  calculations). For running progression, what
+- Roadmap 23 onwards. The weekly review INTERFACE (roadmap 23) renders the roadmap-22 metrics +
+  recommendations and drives accept/dismiss, including APPLYING an accepted calorie change to a new
+  effective-dated `nutrition_targets` row (a declared roadmap-22 seam — the resolver and table already
+  exist; acceptance is modelled in the data shape but applying it is not built here). The invalidating-
+  event flag (illness/travel) has no capture UI yet and is a declared seam (an optional engine input
+  defaulting to "no event"). For running progression, what
   remains is
   APPLYING an accepted stage advance to the forward schedule (a declared seam — see below) and
   choosing which stage a scheduled cardio session plays (still the roadmap 16 seam: the player plays
@@ -285,17 +311,19 @@ Most of the `domain/` tree is still empty placeholders; `domain/training/planSch
 `readinessClassification.ts`, `activitySubstitution.ts`, `cardioIntervalPlayer.ts`,
 `runningProgression.ts`, `domain/measurements/weightTrend.ts`, `domain/nutrition/` (the
 effective-dated target resolver `nutritionTargets.ts` and the daily-diary totals + macro scaling
-`nutritionDiary.ts`) and `domain/alcohol/alcoholUnits.ts` (UK units + the weekly summary), plus
-`domain/progress/` (the pure chart scale/axis logic `chartScale.ts`, the weekly-bucket windowing
-`progressWindows.ts` and the seven per-series assemblers `progressSeries.ts`), are the real
+`nutritionDiary.ts`, the calorie-adjustment eligibility engine `calorieAdjustment.ts` and the protein
+weekly report `proteinReport.ts`) and `domain/alcohol/alcoholUnits.ts` (UK units + the weekly summary),
+plus `domain/progress/` (the pure chart scale/axis logic `chartScale.ts`, the weekly-bucket windowing
+`progressWindows.ts` and the seven per-series assemblers `progressSeries.ts`) and `domain/review/`
+(the weekly-review assembly `weeklyReview.ts`), are the real
 modules so far (pure plan-date/label helpers, the weekly scheduling
 rules, the catalogue grouping and guide-section shaping, the strength progression rules, the Achilles
 readiness classifier, the amber activity-substitution options, the cardio interval scheduler + cue
 events + pause arithmetic, the running progression rules, the robust weight trend, the nutrition
-target/diary helpers, the alcohol units + weekly totals, and the dashboard scale/window/series
-calculations). The rest of the safety-critical rules engine (the calorie-adjustment engine,
-§6.7) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every
-rule needs tests.
+target/diary helpers, the calorie-adjustment eligibility engine + protein report, the alcohol units +
+weekly totals, the dashboard scale/window/series calculations, and the weekly-review assembly). The
+safety-critical calorie-adjustment engine (§6.7) is now built and exhaustively tested;
+`docs/06_RULES_ENGINE.md` remains the source of truth and every rule change needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
 
@@ -1210,6 +1238,78 @@ How the progress dashboard works and what it deliberately left for later:
   visual result (bento reflow at large Dynamic Type, highlight/callout contrast in both themes) benefits
   from a SIMULATOR PASS that the static gates cannot fully close. (4) The weekly review (roadmap 22) will
   reuse these calculations on its own screen; it is not built here.
+
+## Weekly review & calorie adjustment boundaries carried out of Roadmap 22
+
+How the weekly-review calculations work and what they deliberately left for later:
+
+- The ELIGIBILITY GATE is the whole point, and it fails safe (docs/06 §6.7, docs/10 §10.2 "Insufficient
+  logs prevent calorie changes"). `evaluateCalorieAdjustment` (`domain/nutrition/calorieAdjustment.ts`,
+  `RULE_VERSION` `calorie-adjustment/v1`) runs the §6.7 "Data sufficiency" gate BEFORE it looks at any
+  weight rate. ALL of these must hold or the result is `not-eligible` with `deltaKcal: null` and NO
+  proposed target: (1) `daysSinceTargetBegan >= 14`; (2) the weight trend is a `'trend'`, reusing the
+  roadmap-18 engine's OWN 3-in-7 AND 6-in-14 sufficiency (NOT a re-derived threshold) — an
+  `insufficient-data` trend fails the gate; (3) `nutritionLoggedDayCount >= 10` over 14 days; (4) no
+  invalidating-event flag; (5) `adaptiveAdjustmentsEnabled` is true. A missing target, a null
+  `daysSinceTargetBegan`, or any unknown a gate needs counts as UNMET — a wrongly-eligible reduction on
+  absent data is the worst failure this module can produce, so absent data is never read as "safe to
+  cut". A not-eligible result reports EVERY unmet gate (for an honest explanation), not just the first.
+  The engine is exhaustively tested: each gate failing individually, the day-13-vs-14 / 9-vs-10 / adherence
+  79-vs-80 boundaries, and insufficient logging in EACH form yielding no change even when the weight
+  pattern would otherwise cut calories.
+- Only after the gate passes are the §6.7 adjustment rules applied EXACTLY, with the loss expressed as a
+  signed rate (`loss = -changePerWeekKg`): loss within 0.2–0.6 kg/wk → `no-change`; loss < 0.1 kg/wk with
+  adherence ≥ 80% (or weight increasing with adherence ≥ 80%) → `propose-reduction`; loss > 0.8 kg/wk →
+  `propose-increase` paired with a review-logging note. Adherence below 80% with low loss is NOT eligible
+  for a reduction (the rule requires ≥ 80%), and a NULL adherence can never justify a reduction (fail-safe)
+  — both leave the target unchanged. Boundaries are inclusive/exclusive exactly as documented and tested
+  (loss = 0.1, 0.2, 0.6, 0.8 all resolve to no-change; the gaps 0.1–0.2 and 0.6–0.8 trigger no rule → no
+  change). The adjustment magnitude is a single conservative `ADJUSTMENT_STEP_KCAL = 100`, always within
+  the 100–150 kcal band and the one point to change if the band is revisited.
+- The CALORIE FLOOR is never silently breached (docs/06 §6.7). A reduction whose stepped target would
+  fall below `profiles.calorie_floor` is CLAMPED UP to the floor, the delta reduced to match, and a
+  `professionalReviewRequired` flag + `floor-reached` reason attached; a target already at the floor
+  yields a delta of 0 and the same flag ("seek professional advice before going lower"). It clamps and
+  annotates — it does not breach, and it never applies.
+- The two new profiles config values (ONE forward migration `20260722090000`): `calorie_floor integer
+not null default 1500` (a conservative documented default, §6.7, adjustable, `> 0` constrained) and
+  `adaptive_adjustments_enabled boolean not null default true` (§6.7 "allow the user to disable adaptive
+  adjustments" — false is a HARD gate: no change regardless of data). Both NOT NULL with defaults so
+  existing profiles backfill; `weekly_reviews` already existed with the right shape/RLS and was NOT
+  touched. `database.types.ts` was regenerated. pgTAP (`calorie_adjustment_config.test.sql`) proves the
+  defaults, the positive-floor constraint, owner-writability, and weekly_reviews owner isolation.
+- The §6.8 PROTEIN report (`domain/nutrition/proteinReport.ts`, `protein-report/v1`) is a pure seven-day
+  average + count of days within ±10% of target, reusing the diary's daily totals and the effective
+  target. It REPORTS; it proposes no protein change (protein has no adaptive rule). Tested at the ±10%
+  boundary (target 140 → within-band [126, 154] inclusive).
+- The weekly-review ASSEMBLY (`domain/review/weeklyReview.ts`, `weekly-review/v1`) SHAPES the metrics +
+  recommendations the `weekly_reviews` jsonb stores; it computes no new rules. Metrics snapshot each
+  engine honestly (a null where there is no basis — adherence with nothing planned, an insufficient weight
+  trend — never a fabricated zero), reusing `computeWeeklyAdherence` and `summariseAlcoholWeek`. EVERY
+  recommendation carries its EVIDENCE (the engine inputs) and its own RULE VERSION (docs/06 §6.1/§6.10).
+  The strength and running recommendations are SURFACED — READ from `progression_proposals` /
+  `running_progression_proposals` (the roadmap-12/17 engines produced them), NOT re-run here — with their
+  stored status and version travelling through. The calorie recommendation is always present (informative
+  even at no-change) and marked `actionable`/`proposed` only when it proposes a change.
+- ACCEPTED-CHANGE APPLICATION IS DEFERRED to roadmap 23 (a declared seam). A calorie proposal is
+  accept-not-auto, exactly like the strength/running proposals, so acceptance is MODELLED in the data
+  shape — a per-recommendation status and the `weekly_reviews.accepted_changes` jsonb slot — but this
+  roadmap does NOT apply anything. Applying an accepted calorie change (inserting a new effective-dated
+  `nutrition_targets` row) is wireable minimally since the table + `resolveCurrentNutritionTarget` already
+  exist, but it belongs with the accept/dismiss INTERFACE (roadmap 23) and is user-accept-first, never
+  automatic.
+- `features/review/` is a THIN owner-scoped repository over `weekly_reviews` (narrow backend + Supabase
+  adapter + composed repo, mirroring `features/alcohol`): `saveReview` (an idempotent upsert on
+  `(user_id, period_start, period_end)`), `loadReview(period)` and `loadLatestReview` (the minimal
+  accessor). Offline fails honestly; no trusted RPC (the safety-critical decision is made by the pure
+  engine before it reaches the repository, so nothing the client sends can smuggle in an ineligible
+  change). The review SCREEN, the accept/dismiss actions and the full data-gathering orchestration are
+  roadmap 23 — the repository read/write and the pure assembly are what this roadmap ships and tests.
+- Declared seams left untouched: the invalidating-event flag (illness/travel) has no capture UI — an
+  optional engine input defaulting to "no event", honoured once a later step captures it; notifications
+  (roadmap 24) and export (roadmap 25) are unrelated. No change to any earlier engine — the calorie engine
+  CONSUMES the roadmap-18 trend and roadmap-19 target/logs and the review SURFACES the roadmap-12/17
+  proposals, but re-runs none of them.
 
 ## Known small issues to clean up (not blocking)
 

@@ -756,6 +756,8 @@ export type Database = {
       }
       profiles: {
         Row: {
+          adaptive_adjustments_enabled: boolean
+          calorie_floor: number
           created_at: string
           date_of_birth: string | null
           display_name: string | null
@@ -770,6 +772,8 @@ export type Database = {
           weekly_alcohol_unit_limit: number | null
         }
         Insert: {
+          adaptive_adjustments_enabled?: boolean
+          calorie_floor?: number
           created_at?: string
           date_of_birth?: string | null
           display_name?: string | null
@@ -784,6 +788,8 @@ export type Database = {
           weekly_alcohol_unit_limit?: number | null
         }
         Update: {
+          adaptive_adjustments_enabled?: boolean
+          calorie_floor?: number
           created_at?: string
           date_of_birth?: string | null
           display_name?: string | null
