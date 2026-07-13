@@ -231,31 +231,48 @@ invoker` transactional RPC (like `seed_private_plan`, NOT a definer like the rea
   inserts under RLS — no trusted RPC). The Today intake seam is now CLOSED: `features/today` sums the
   day's `nutrition_logs` and shows real calorie/protein progress. pgTAP for the new tables. See the
   notes below.
+- Roadmap 20, alcohol tracking. The alcohol half of the Log hub (S-033): a NEUTRAL drink log, reusable
+  drink favourites and a weekly summary (docs/06 §6.9), all user-entered (no external drink database).
+  UK units are a pure, tested function (`domain/alcohol/alcoholUnits.ts`): `units = volume_ml ×
+abv_percent / 1000` (568 ml at 5% ≈ 2.84), rounded to two decimals; calories are USER-SUPPLIED per
+  drink (no invented calories-from-ABV formula). The weekly summary is the pure `summariseAlcoholWeek`,
+  which REUSES the roadmap-19 `dayWindow` so weekly totals and alcohol-free days use the same correct
+  LOCAL-day boundaries (a drink logged at 00:30 local belongs to the right local day, never a raw UTC
+  day). ONE forward migration (`20260721090000`) adds `drink_favourites` (owner-scoped, composite
+  `(id, user_id)` key convention, RLS/index/updated_at matching the existing tables) and a NULLABLE
+  `profiles.weekly_alcohol_unit_limit` (no invented default); `alcohol_logs` already existed and was
+  NOT touched. `features/alcohol/` mirrors `features/nutrition` (narrow repository + hooks + pure views,
+  Zod validation, plain owner-scoped inserts under RLS — no trusted RPC, no safety rule to violate).
+  TONE is a standing hard constraint: no moralising and NO compensatory logic (see the boundaries below).
+  pgTAP for `drink_favourites` and the profiles column; the units function is tested for common pint
+  sizes/strengths, the weekly summation and free-day counting for the local-day boundary. See the notes
+  below.
 
 Not started:
 
-- Roadmap 20 onwards (the rest of the rules engine — calorie adjustments (docs/06 §6.7, which will
-  CONSUME the roadmap-18 weight trend and the roadmap-19 targets/logs), the protein weekly-average
-  report (§6.8) and alcohol summaries — and the remaining product surfaces including the weekly
-  review, roadmap 22). For running progression, what remains is
+- Roadmap 21 onwards (the rest of the rules engine — calorie adjustments (docs/06 §6.7, which will
+  CONSUME the roadmap-18 weight trend and the roadmap-19 targets/logs) and the protein weekly-average
+  report (§6.8) — and the remaining product surfaces including the weekly
+  review, roadmap 22, which will CONSUME the roadmap-20 alcohol data). For running progression, what
+  remains is
   APPLYING an accepted stage advance to the forward schedule (a declared seam — see below) and
   choosing which stage a scheduled cardio session plays (still the roadmap 16 seam: the player plays
   the lowest available stage). For readiness, what remains is prompting a pre-session check before
   every gated session (a declared seam) and, from roadmap 15, distinct cardio activity typing on the
-  substitution replacement and the actual next-morning reminder (roadmap 24). Alcohol logging (S-033)
-  is the still-stubbed half of the Log hub (roadmap 20; its `alcohol_logs` table already exists). Apple
+  substitution replacement and the actual next-morning reminder (roadmap 24). Apple
   Health / HealthKit measurement import is roadmap 27 — all measurements are manual for now.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
 `schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts`,
 `readinessClassification.ts`, `activitySubstitution.ts`, `cardioIntervalPlayer.ts`,
-`runningProgression.ts`, `domain/measurements/weightTrend.ts` and `domain/nutrition/` (the
+`runningProgression.ts`, `domain/measurements/weightTrend.ts`, `domain/nutrition/` (the
 effective-dated target resolver `nutritionTargets.ts` and the daily-diary totals + macro scaling
-`nutritionDiary.ts`) are the real modules so far (pure plan-date/label helpers, the weekly scheduling
+`nutritionDiary.ts`) and `domain/alcohol/alcoholUnits.ts` (UK units + the weekly summary) are the real
+modules so far (pure plan-date/label helpers, the weekly scheduling
 rules, the catalogue grouping and guide-section shaping, the strength progression rules, the Achilles
 readiness classifier, the amber activity-substitution options, the cardio interval scheduler + cue
-events + pause arithmetic, the running progression rules, the robust weight trend, and the nutrition
-target/diary helpers). The rest of the safety-critical rules engine (the calorie-adjustment engine,
+events + pause arithmetic, the running progression rules, the robust weight trend, the nutrition
+target/diary helpers, and the alcohol units + weekly totals). The rest of the safety-critical rules engine (the calorie-adjustment engine,
 §6.7) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every
 rule needs tests.
 
@@ -1036,6 +1053,74 @@ How nutrition logging works and what it deliberately left for later:
   `MealTemplatesView`). Form inputs use accessibility labels distinct from their visible label text
   (matching `MeasurementFormView`) so a screen reader — and `getByLabelText` — resolves each field
   unambiguously.
+
+## Alcohol tracking boundaries carried out of Roadmap 20
+
+How alcohol tracking works and what it deliberately left for later:
+
+- TONE IS A STANDING HARD CONSTRAINT, not a nicety (docs/07 §7.4, docs/06 §6.9, the roadmap-20 brief).
+  This is a NEUTRAL tracker: it RECORDS and TOTALS, it never judges or prescribes. There is deliberately
+  no moralising language anywhere (no "too much", no guilt for a drink, no praise for abstaining), no
+  colour-coded warning, and — most importantly — NO COMPENSATORY LOGIC OF ANY KIND. The app must never
+  suggest fasting, meal-skipping, dehydration or extra/"earned" exercise to offset drinking; docs/06
+  §6.9 forbids this explicitly, so it is not a seam to fill later — it must never exist. The
+  percentage-of-personal-limit figure is INFORMATION, never a cap, a warning or a target. Any output
+  that nudges behaviour is a bug. `WeeklyAlcoholSummaryView.test.tsx` guards this with a broad
+  forbidden-vocabulary assertion over the rendered copy in every state, alongside the neutral,
+  non-congratulatory empty state.
+- The units formula is pure and tested (`domain/alcohol/alcoholUnits.ts`). `computeUnits(volumeMl,
+abvPercent) = volumeMl × abvPercent / 1000`, rounded to two decimals (the numeric(6,2) units column) —
+  568 ml at 5% ≈ 2.84, per docs/06 §6.9. Units are DERIVED once, at log time, from volume and strength;
+  they are never typed by hand and never stored on a favourite (they would only drift). CALORIES are
+  USER-SUPPLIED per drink: there is no reliable calories-from-ABV formula worth inventing, so the field
+  is entered/estimated (the column already exists on `alcohol_logs`), with an "approximate" label on the
+  live estimate (docs/07 §7.4). The unit tests cover the common pint sizes and strengths the brief calls
+  out (568 ml at 3.4/4/5/5.2%, 330/440 ml cans, 750 ml wine at 12–14%, 25/50 ml spirit at 40%).
+- The weekly summary REUSES the roadmap-19 local-day window. `summariseAlcoholWeek` imports `dayWindow`
+  from `domain/nutrition/nutritionDiary` (via `weekDays`/`weekWindow`) so the seven-day totals AND the
+  alcohol-free-day count use the same correct LOCAL-day boundaries as the food diary: a drink logged at
+  00:30 local belongs to the right local day, and an alcohol-free day is a local day with zero drinks —
+  never a raw UTC day (which would mis-assign a drink by the user's UTC offset and corrupt the free-day
+  count). Days are bucketed with no gap and no overlap, so each drink lands in exactly one day.
+  `offsetMinutes` follows `Date.getTimezoneOffset()`, passed in from the hook, never read from ambient
+  state (same convention as the diary). Tested end to end through the repository, including the
+  00:30-local edge and the exactly-local-midnight edge.
+- The FIVE weekly metrics, and only those (docs/06 §6.9): total drinks, total units, estimated calories,
+  alcohol-free days, and percentage of personal limit. The percentage line is shown ONLY when a positive
+  `weekly_alcohol_unit_limit` is set; when the limit is null it is omitted entirely (no 0, no fabricated
+  limit), and the summary invites the user to set one, describing it as their own figure for information.
+- The schema (ONE forward migration, `20260721090000`). `alcohol_logs` already existed with the right
+  shape and RLS (20260711090300 / 090500, indexed and updated_at-triggered in 090400) and was NOT
+  touched. The migration adds (1) `drink_favourites` — a reusable drink definition (the `foods` parallel
+  for alcohol: `drink_name`, `drink_type`, `volume_ml`, `abv_percent`, `calories`), owner-scoped with the
+  composite `(id, user_id)` key convention of the workout/cardio/meal tables (ready for a composite FK
+  though it currently parents none), RLS/index/updated_at trigger matching the existing tables; and (2)
+  `profiles.weekly_alcohol_unit_limit numeric(6,2)`, NULLABLE with NO default. Nullable is the point:
+  alcohol has no safe number to invent for someone, so the responsible default is to store nothing until
+  the user sets a limit, and the percentage metric is simply not shown until then. `database.types.ts`
+  was regenerated. pgTAP (`alcohol_tracking.test.sql`) proves owner isolation, the composite-key
+  convention, the RLS with-check block, anon denial, and the nullable-default + owner-write behaviour of
+  the profiles column.
+- A PLAIN owner-scoped logging feature, no trusted RPC. A drink log is data the user owns with no safety
+  rule it could violate (unlike readiness's classifier or the red session-start block), so direct
+  owner-scoped INSERTs under RLS are exactly right. `features/alcohol/` mirrors `features/nutrition`:
+  narrow repository (`alcoholRepository.ts`) + hooks (`useAlcoholLog`, `useAlcoholSummary`,
+  `useDrinkFavourites`, `useAlcoholLimit`) + pure views (`AlcoholLogView`, `DrinkFavouriteFormView`,
+  `WeeklyAlcoholSummaryView`, `AlcoholLimitView`), with Zod validation (`alcoholSchema.ts`) as the
+  boundary (volume > 0, ABV 0–100, non-negative integer calories, the numeric precisions). Three write
+  paths, one `alcohol_logs` shape: a manual drink, a one-tap log from a favourite (units recomputed from
+  its volume/ABV), and saving a favourite. Offline fails HONESTLY (`status: 'offline'`) and nothing is
+  held/replayed (a fuller queue is a noted seam, not needed for a plain log). The Log hub
+  (`app/(tabs)/log/`) now leads Alcohol with a real card into the alcohol stack (`alcohol`,
+  `alcohol-week`, `drink-new`, `alcohol-limit`).
+- The personal-limit editing surface. The `weekly_alcohol_unit_limit` storage + read is wired
+  (`useAlcoholLimit`, read from and written to the caller's own `profiles` row), and a minimal editor
+  (`AlcoholLimitView`, reached from the alcohol screens) makes the percentage metric usable now. A fuller
+  settings surface for it is a NOTED SEAM — there is no settings screen in the app yet.
+- Declared seams (returned, not built): (1) the weekly review's use of alcohol data is roadmap 22 (it
+  will READ these logs and the summary). (2) Any calorie-offset / "compensation" logic is FORBIDDEN, not
+  a seam — it must never exist. (3) External drink databases / barcode lookup are explicitly out of MVP
+  (all drink entry is manual). (4) The next-morning / notification concerns are unrelated (roadmap 24).
 
 ## Known small issues to clean up (not blocking)
 

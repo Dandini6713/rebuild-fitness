@@ -285,6 +285,42 @@ export type Database = {
         }
         Relationships: []
       }
+      drink_favourites: {
+        Row: {
+          abv_percent: number
+          calories: number
+          created_at: string
+          drink_name: string
+          drink_type: string | null
+          id: string
+          updated_at: string
+          user_id: string
+          volume_ml: number
+        }
+        Insert: {
+          abv_percent: number
+          calories: number
+          created_at?: string
+          drink_name: string
+          drink_type?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+          volume_ml: number
+        }
+        Update: {
+          abv_percent?: number
+          calories?: number
+          created_at?: string
+          drink_name?: string
+          drink_type?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+          volume_ml?: number
+        }
+        Relationships: []
+      }
       exercise_logs: {
         Row: {
           created_at: string
@@ -731,6 +767,7 @@ export type Database = {
           timezone: string
           updated_at: string
           user_id: string
+          weekly_alcohol_unit_limit: number | null
         }
         Insert: {
           created_at?: string
@@ -744,6 +781,7 @@ export type Database = {
           timezone?: string
           updated_at?: string
           user_id: string
+          weekly_alcohol_unit_limit?: number | null
         }
         Update: {
           created_at?: string
@@ -757,6 +795,7 @@ export type Database = {
           timezone?: string
           updated_at?: string
           user_id?: string
+          weekly_alcohol_unit_limit?: number | null
         }
         Relationships: []
       }

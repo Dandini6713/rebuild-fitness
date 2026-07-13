@@ -10,11 +10,10 @@ import {
 } from '@/components/common';
 import { useNetworkStatus } from '@/lib/network/useNetworkStatus';
 
-// The log hub (docs/03 S-030). The logging actions are Food, Weight, Waist and (later)
-// Alcohol. Roadmap 18 delivered Weight and Waist; roadmap 19 delivers Food (the diary,
-// personal foods, quick entries, saved meals and daily targets). Alcohol is roadmap 20,
-// shown here as an honest, clearly-disabled placeholder rather than hidden, so the shape
-// of the hub is truthful about what works today.
+// The log hub (docs/03 S-030). The logging actions are Food, Weight, Waist and Alcohol.
+// Roadmap 18 delivered Weight and Waist; roadmap 19 delivered Food (the diary, personal
+// foods, quick entries, saved meals and daily targets); roadmap 20 delivers Alcohol (a
+// neutral drink log, reusable drink favourites and a weekly summary — docs/06 §6.9).
 export default function LogScreen() {
   const router = useRouter();
   const { isOffline } = useNetworkStatus();
@@ -22,7 +21,7 @@ export default function LogScreen() {
   return (
     <AppScreen eyebrow="Keep it honest, keep it useful" title="Log">
       {isOffline ? (
-        <OfflineState description="You will be able to record food, weight and waist here once you are back online." />
+        <OfflineState description="You will be able to record food, weight, waist and alcohol here once you are back online." />
       ) : (
         <>
           <Card>
@@ -68,13 +67,17 @@ export default function LogScreen() {
           <Card>
             <AppText variant="heading">Alcohol</AppText>
             <AppText tone="secondary" variant="body">
-              Logging lager or alcohol opens up in a later step. It is not ready
-              yet.
+              Record a drink, save drinks you have often, and see your weekly
+              totals. Units are estimated; this is a plain record, not a
+              judgement.
             </AppText>
+            <PrimaryButton
+              label="Record a drink"
+              onPress={() => router.push('/log/alcohol')}
+            />
             <SecondaryButton
-              disabled
-              label="Log lager or alcohol (coming later)"
-              onPress={() => {}}
+              label="Weekly summary"
+              onPress={() => router.push('/log/alcohol-week')}
             />
           </Card>
         </>
