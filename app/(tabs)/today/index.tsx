@@ -42,6 +42,16 @@ export default function TodayScreen() {
     [router],
   );
 
+  // A cardio day opens the cardio interval player (roadmap 16, S-014) instead of the
+  // strength player. Cardio is not gated by the readiness block, so this routes
+  // straight to the player, which creates or resumes its own cardio_log.
+  const openCardio = useCallback(
+    (scheduledSessionId: string) => {
+      router.push(`/today/cardio?sessionId=${scheduledSessionId}`);
+    },
+    [router],
+  );
+
   // Reload when returning to Today (for example after finishing a session in the
   // player) so a completed session shows as completed.
   useFocusEffect(
@@ -67,6 +77,7 @@ export default function TodayScreen() {
             onStart={(scheduledSessionId) =>
               startSession(scheduledSessionId, openPlayer)
             }
+            onStartCardio={openCardio}
             startBlocked={startBlockedByReadiness}
             startError={startError}
             starting={starting}

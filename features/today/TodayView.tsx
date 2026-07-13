@@ -58,6 +58,10 @@ type TodayViewProps = {
   greeting: string;
   onOpenPlayer: (scheduledSessionId: string) => void;
   onStart: (scheduledSessionId: string) => void;
+  // Opens the cardio interval player (roadmap 16, S-014) for a cardio session.
+  // Cardio starts are not gated by the readiness block, so this routes straight to
+  // the player, which owns its own cardio_log rather than going through onStart.
+  onStartCardio?: (scheduledSessionId: string) => void;
   startError: string | null;
   // True when a start was refused by a red pre-session readiness result (docs/06
   // §6.5). The session section shows the honest red result instead of a start button.
@@ -71,6 +75,7 @@ export function TodayView({
   greeting,
   onOpenPlayer,
   onStart,
+  onStartCardio,
   startBlocked = false,
   startError,
   starting,
@@ -106,6 +111,7 @@ export function TodayView({
       <SessionSection
         onOpenPlayer={onOpenPlayer}
         onStart={onStart}
+        onStartCardio={onStartCardio}
         session={session}
         startBlocked={startBlocked}
         startError={startError}
@@ -144,6 +150,7 @@ function GreetingHeader({
 function SessionSection({
   onOpenPlayer,
   onStart,
+  onStartCardio,
   session,
   startBlocked,
   startError,
@@ -151,6 +158,7 @@ function SessionSection({
 }: {
   onOpenPlayer: (scheduledSessionId: string) => void;
   onStart: (scheduledSessionId: string) => void;
+  onStartCardio?: ((scheduledSessionId: string) => void) | undefined;
   session: TodaySessionState;
   startBlocked: boolean;
   startError: string | null;
@@ -198,6 +206,10 @@ function SessionSection({
 
   // Active: a training session to start (or one already under way).
   const label = labelFor(session.session);
+  // A cardio day routes straight to the cardio interval player (roadmap 16), which
+  // owns its own cardio_log. Cardio is not gated by the readiness block, so there is
+  // no start RPC and no red-block path here.
+  const isCardio = session.session.sessionType === 'cardio';
   return (
     <Card accessibilityLabel={`Today's session: ${label}.`}>
       <StatusBadge label={label} tone={toneFor(session.session.sessionType)} />
@@ -226,6 +238,20 @@ function SessionSection({
             label="Continue session"
             onPress={() => onOpenPlayer(session.session.id)}
           />
+        </View>
+      ) : isCardio && onStartCardio ? (
+        <View style={{ gap: spacing.xs }}>
+          {/* The cardio interval player (roadmap 16, S-014). It resumes an existing
+              in-progress cardio session or starts a new one. */}
+          <PrimaryButton
+            accessibilityLabel="Start today's cardio session"
+            label="Start cardio session"
+            onPress={() => onStartCardio(session.session.id)}
+          />
+          <AppText tone="secondary" variant="caption">
+            A guided walk or run-walk with interval cues. You can pause and
+            resume at any time.
+          </AppText>
         </View>
       ) : startBlocked ? (
         // A red pre-session readiness result blocked this start (docs/06 §6.5,

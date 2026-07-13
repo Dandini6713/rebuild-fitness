@@ -159,22 +159,43 @@ invoker` transactional RPC (like `seed_private_plan`, NOT a definer like the rea
   server-side), never a pretend swap. A pgTAP test proves the atomic replaced+linked
   insert, the double-substitution and invalid-type guards, gating, owner isolation and anon
   denial. See the notes below on the cardio-typing, next-morning and volume-reduction seams.
+- Roadmap 16, cardio interval player. The guided cardio player (S-014) plays a seeded run-walk
+  stage — warm-up, timed run/walk intervals with a visible current segment and countdown, and
+  cool-down — with audio and haptic cues at each transition, and PAUSE/RESUME. The keystone is
+  the pure/device SPLIT the brief mandates: the cue DECISION is a pure, exhaustively tested
+  scheduler (`domain/training/cardioIntervalPlayer.ts`) that, from the ordered steps and the
+  elapsed time, computes the current segment, time remaining, the next transition and typed CUE
+  EVENTS (segment-start, halfway, the 3-2-1 countdown, segment-end, session-complete) with their
+  timings, plus the pause-aware clock arithmetic; the cue EFFECT is a thin ADAPTER
+  (`features/cardio/deviceCardioCueAdapter.ts`, expo-audio + expo-haptics + expo-keep-awake) that
+  is the ONLY part jest cannot verify and REQUIRES A SIMULATOR/DEVICE PASS. Three owner-scoped
+  tables (`cardio_templates`, `cardio_interval_steps`, `cardio_logs`, migration
+  `20260718090000`) hold the programme and the session summary, modelled on the workout tables;
+  `seed_cardio_stages()` (called by `seed_private_plan`) seeds the nine §6.3 stages per user.
+  `features/cardio/` mirrors `features/workouts/` (narrow repository, `useCardioPlayer` hook,
+  pure `CardioPlayerView`); the minimal local resume state lives in a SQLite/in-memory store
+  (`lib/persistence/activeCardioStore.ts`), and the `cardio_logs` summary is the synced record on
+  completion. Reached from Today's cardio-day "Start cardio session". See the notes below on the
+  pure/device split, the resume-state-vs-summary distinction, and the GPS/progression/activity-
+  typing seams.
 
 Not started:
 
-- Roadmap 16 onwards (the cardio interval player and distinct cardio activity types, then the
-  rest). For readiness, what remains is prompting a pre-session check before every gated
-  session (a declared seam) and, from roadmap 15, distinct cardio activity typing on the
-  substitution replacement and the actual next-morning reminder (roadmap 24).
+- Roadmap 17 onwards (running progression — the engine that advances/repeats/regresses the nine
+  run-walk stages this roadmap only PLAYS — then the rest). For readiness, what remains is
+  prompting a pre-session check before every gated session (a declared seam) and, from roadmap
+  15, distinct cardio activity typing on the substitution replacement and the actual
+  next-morning reminder (roadmap 24).
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
 `schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts`,
-`readinessClassification.ts` and `activitySubstitution.ts` are the real modules so far (pure
-plan-date/label helpers, the weekly scheduling rules, the catalogue grouping and guide-section
-shaping, the strength progression rules, the Achilles readiness classifier, and the amber
-activity-substitution options). The rest of the safety-critical rules engine (running
-progression, calorie adjustments) is still ahead. When you build it,
-`docs/06_RULES_ENGINE.md` is the source of truth and every rule needs tests.
+`readinessClassification.ts`, `activitySubstitution.ts` and `cardioIntervalPlayer.ts` are the
+real modules so far (pure plan-date/label helpers, the weekly scheduling rules, the catalogue
+grouping and guide-section shaping, the strength progression rules, the Achilles readiness
+classifier, the amber activity-substitution options, and the cardio interval scheduler + cue
+events + pause arithmetic). The rest of the safety-critical rules engine (running progression,
+calorie adjustments) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source
+of truth and every rule needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
 
@@ -674,6 +695,77 @@ How the amber swap works and what it deliberately left for later:
   and excludes `replaced` originals from weekly adherence (a small, tested change in
   `features/today/todayRepository.ts`), so Today shows the replacement, not the superseded
   original, and a swap does not drag adherence down.
+
+## Cardio interval player boundaries carried out of Roadmap 16
+
+How the cardio player works and what it deliberately left for later:
+
+- The pure-scheduler / device-adapter split is the crux (and the brief's key rule). The cue
+  DECISION is a pure module (`domain/training/cardioIntervalPlayer.ts`): `buildTimeline` places
+  the ordered steps on an absolute-seconds line; `deriveCardioProgress` gives the current
+  segment, its elapsed/remaining and the next transition; `buildCueEvents` emits the typed cue
+  events (segment-start, halfway, the 3-2-1 countdown, segment-end, session-complete) with exact
+  timings; `cuesBetween` returns the cues in a `(fromExclusive, toInclusive]` tick window so each
+  fires exactly once; and the pause-aware clock (`startClock`/`pauseClock`/`resumeClock`/
+  `effectiveElapsedSeconds`) excludes paused time so the timeline never advances while paused.
+  No React, no I/O, no audio — exhaustively tested, including all nine stage shapes and the
+  pause/resume arithmetic. The cue EFFECT is a thin adapter behind a narrow interface
+  (`cardioCueAdapter.ts`): a no-op on web/tests, and the real
+  `deviceCardioCueAdapter.ts` (expo-audio + expo-haptics + expo-keep-awake) on native, chosen by
+  `createCardioCueAdapter.ts` and loaded lazily so nothing native reaches a test/web bundle. The
+  hook routes cue events to whichever adapter is injected; tests inject a RECORDING adapter and
+  assert cues are ROUTED, never that sound played. A failing pure test means the timer logic is
+  wrong; a missed cue in the field means the adapter did not fire.
+- The device adapter is the FIRST thing in this repo that genuinely needs a simulator/device
+  pass. Static checks (format/lint/typecheck/jest) cannot verify that a beep or a vibration
+  actually fires, only that the events are computed and routed. Signing roadmap 16 off fully
+  means running a real cardio session on a device and confirming the run-start beep, the walk
+  change, the 3-2-1 countdown ticks and the completion chime all fire, ideally with the screen
+  locked. The four bundled `assets/audio/*.wav` cue tones and the `expo-audio`/`expo-haptics`/
+  `expo-keep-awake` calls are wired but unverifiable here. This is the one declared seam that a
+  green CI does not close.
+- Three new cardio tables (migration `20260718090000`), all owner-scoped and shaped like the
+  workout tables: `cardio_templates` (a name, a nullable `stage_number`, the activity kind, an
+  estimate), `cardio_interval_steps` (ordered `warmup`/`run`/`walk`/`cooldown`/… steps with a
+  duration and a short `cue_text`, child of a template via the composite `(id, user_id)` FK), and
+  `cardio_logs` (one row per started session — started/completed/status/effort/notes, the
+  scheduled-session and template links via `on delete set null`, and a nullable duration and
+  distance). RLS, indexes, `updated_at` triggers and grants follow `20260711090400/090500`
+  exactly. `database.types.ts` was regenerated.
+- The nine run-walk stages are OWNER-SCOPED reference data, seeded by `seed_cardio_stages()`
+  (`security invoker`, idempotent) which `seed_private_plan` calls — so, like the strength
+  templates, they cannot live in `seed.sql` (no authenticated user there). Each stage is a 300s
+  warm-up, then (run, walk) repeated, then a 300s cool-down, transcribed EXACTLY from docs/06
+  §6.3 (stage 1 = run 60s / walk 120s ×8 … stage 7 = run 720s / walk 120s ×2; stages 8 and 9 are
+  continuous runs of 20 and 25 minutes with no walk steps). The doc gives no warm-up/cool-down
+  length, so a fixed five minutes each is used, expressed once via the `v_warmup_seconds` /
+  `v_cooldown_seconds` constants. Stage 9 is "25 to 30 minutes"; the seed uses the 25-minute
+  lower bound. A pgTAP test asserts the stage/step counts and representative durations, plus
+  owner isolation, the composite-FK null-on-delete behaviour and anon denial.
+- The minimal resume state vs the `cardio_logs` summary. A run-walk session has no per-set rows,
+  so the local-first store (`activeCardioStore.ts`, SQLite on device / in-memory on web+tests)
+  holds only what is needed to RESUME mid-interval after a background/lock: the session id, the
+  clock (started/paused-accum/paused-at) and status. The interval position is DERIVED from the
+  clock against the steps, so nothing per-segment is persisted. There is deliberately NO
+  heavy per-segment sync — the durable record is for resume, and the ONE synced record is the
+  `cardio_logs` summary (duration + effort) written on completion. Offline completion fails
+  honestly and keeps the local state for a retry; it never fakes a finish.
+- Which stage plays, and the entry point. Starting a cardio session is NOT gated by the
+  red-readiness block (only running and demanding lower-body are), so there is no trusted RPC:
+  the player owns its own `cardio_logs` row via a plain owner-scoped insert under RLS, resuming
+  an in-progress log if one exists. Reached from Today's cardio-day card ("Start cardio session",
+  a new optional `onStartCardio` on `TodayView` routing to `app/(tabs)/today/cardio.tsx`), which
+  the cardio player screen drives. The one player drives walk, bike and run-walk alike — they
+  differ only in their step configuration.
+- Declared seams (returned, not built): (1) GPS / distance tracking — `cardio_logs.distance_m`
+  exists but is nullable and UNUSED this roadmap (explicitly no GPS yet). (2) The running
+  PROGRESSION engine that advances / repeats / regresses stages is roadmap 17; this roadmap only
+  PLAYS a stage and seeds the nine, and always plays the lowest available stage because nothing
+  chooses a stage yet. (3) Distinct cardio activity-typing at the `scheduled_sessions` level (the
+  roadmap 09 / 15 seam) — a substituted or planned cardio day is still typed `cardio`, with no
+  link to a specific `cardio_template`; the templates are the natural home for that future
+  per-session link, which roadmap 17 will wire. (4) The device audio/haptic adapter needs the
+  simulator pass noted above.
 
 ## Known small issues to clean up (not blocking)
 

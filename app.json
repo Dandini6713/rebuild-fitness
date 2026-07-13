@@ -16,7 +16,12 @@
     "web": {
       "bundler": "metro"
     },
-    "plugins": ["expo-router", "expo-sqlite", "expo-secure-store"],
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-audio"
+    ],
     "experiments": {
       "typedRoutes": true
     }

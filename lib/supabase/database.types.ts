@@ -145,6 +145,143 @@ export type Database = {
         }
         Relationships: []
       }
+      cardio_interval_steps: {
+        Row: {
+          activity_type: string
+          cardio_template_id: string
+          created_at: string
+          cue_text: string | null
+          duration_seconds: number
+          id: string
+          step_order: number
+          user_id: string
+        }
+        Insert: {
+          activity_type: string
+          cardio_template_id: string
+          created_at?: string
+          cue_text?: string | null
+          duration_seconds: number
+          id?: string
+          step_order: number
+          user_id: string
+        }
+        Update: {
+          activity_type?: string
+          cardio_template_id?: string
+          created_at?: string
+          cue_text?: string | null
+          duration_seconds?: number
+          id?: string
+          step_order?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cardio_interval_steps_cardio_template_id_user_id_fkey"
+            columns: ["cardio_template_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "cardio_templates"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      cardio_logs: {
+        Row: {
+          cardio_template_id: string | null
+          completed_at: string | null
+          created_at: string
+          distance_m: number | null
+          duration_seconds: number | null
+          id: string
+          notes: string | null
+          scheduled_session_id: string | null
+          session_effort: number | null
+          started_at: string
+          status: Database["public"]["Enums"]["session_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cardio_template_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          distance_m?: number | null
+          duration_seconds?: number | null
+          id?: string
+          notes?: string | null
+          scheduled_session_id?: string | null
+          session_effort?: number | null
+          started_at: string
+          status?: Database["public"]["Enums"]["session_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cardio_template_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          distance_m?: number | null
+          duration_seconds?: number | null
+          id?: string
+          notes?: string | null
+          scheduled_session_id?: string | null
+          session_effort?: number | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["session_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cardio_logs_cardio_template_id_user_id_fkey"
+            columns: ["cardio_template_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "cardio_templates"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "cardio_logs_scheduled_session_id_user_id_fkey"
+            columns: ["scheduled_session_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "scheduled_sessions"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      cardio_templates: {
+        Row: {
+          created_at: string
+          estimated_minutes: number | null
+          id: string
+          name: string
+          session_type: string
+          stage_number: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          estimated_minutes?: number | null
+          id?: string
+          name: string
+          session_type?: string
+          stage_number?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          estimated_minutes?: number | null
+          id?: string
+          name?: string
+          session_type?: string
+          stage_number?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       exercise_logs: {
         Row: {
           created_at: string
@@ -1023,6 +1160,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      seed_cardio_stages: { Args: never; Returns: number }
       seed_private_plan: {
         Args: { p_reset?: boolean; p_start_date: string }
         Returns: string
