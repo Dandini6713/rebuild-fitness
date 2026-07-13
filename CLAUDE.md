@@ -289,15 +289,32 @@ abv_percent / 1000` (568 ml at 5% ≈ 2.84), rounded to two decimals; calories a
   owner-scoped repository (read/write `weekly_reviews` + a latest-review accessor); the review SCREEN
   and accept/dismiss are roadmap 23. pgTAP for the two profiles columns and weekly_reviews owner
   isolation. See the notes below.
+- Roadmap 23, weekly review INTERFACE. The Progress tab now has a weekly-review SCREEN (S-041)
+  rendering the six sections over the roadmap-22 metrics + recommendations — what happened, what
+  improved, what needs attention, safety and recovery, proposed changes and confirmation — and driving
+  the CONFIRM-BEFORE-APPLY flow. The load-bearing new pure part is the LOCAL-day nutrition-day count
+  (`countNutritionDaysInWindow`, `domain/nutrition/nutritionDiary.ts`) — the roadmap-22 seam this
+  roadmap closes: the number of DISTINCT LOCAL days in the 14-day window with at least one
+  `nutrition_log`, computed by bucketing each log through the roadmap-19 `dayWindow` (not raw UTC days,
+  not log rows). It is what the calorie-eligibility gate's "≥10 of 14 days" reads, so if it were wrong
+  the whole gate would be. Accepting a proposal is atomic through ONE `security invoker` RPC
+  (`confirm_weekly_review_change`, migration `20260723090000`): applying the change, marking the review
+  and writing the audit event happen in a single transaction, and NOTHING is applied until the user's
+  explicit confirm. A calorie accept inserts a NEW effective-dated `nutrition_targets` row (calories
+  read from the STORED review recommendation, protein carried from the current target, source
+  `weekly-review`); a strength/running accept marks the underlying `progression_proposals` /
+  `running_progression_proposals` row `accepted` (SURFACED, not re-run — the running stage-application
+  loop stays the roadmap-17 seam). Every confirmation records one `audit_events` row carrying the
+  decision, rule version and evidence (docs/06 §6.10). `features/review/` gains the generation +
+  confirm repository methods, `useWeeklyReview` and `WeeklyReviewView`. pgTAP for the confirm RPC
+  (owner isolation, the audit written, atomicity, anon denied). See the notes below.
 
 Not started:
 
-- Roadmap 23 onwards. The weekly review INTERFACE (roadmap 23) renders the roadmap-22 metrics +
-  recommendations and drives accept/dismiss, including APPLYING an accepted calorie change to a new
-  effective-dated `nutrition_targets` row (a declared roadmap-22 seam — the resolver and table already
-  exist; acceptance is modelled in the data shape but applying it is not built here). The invalidating-
-  event flag (illness/travel) has no capture UI yet and is a declared seam (an optional engine input
-  defaulting to "no event"). For running progression, what
+- Roadmap 24 onwards. The invalidating-
+  event flag (illness/travel) still has no capture UI and is a declared seam (an optional engine input
+  defaulting to "no event"; the calorie engine and the generation caller already honour it once a
+  toggle exists — the natural home is a future settings surface). For running progression, what
   remains is
   APPLYING an accepted stage advance to the forward schedule (a declared seam — see below) and
   choosing which stage a scheduled cardio session plays (still the roadmap 16 seam: the player plays
@@ -1310,6 +1327,77 @@ not null default 1500` (a conservative documented default, §6.7, adjustable, `>
   (roadmap 24) and export (roadmap 25) are unrelated. No change to any earlier engine — the calorie engine
   CONSUMES the roadmap-18 trend and roadmap-19 target/logs and the review SURFACES the roadmap-12/17
   proposals, but re-runs none of them.
+
+## Weekly review interface boundaries carried out of Roadmap 23
+
+How the weekly-review screen and the confirm flow work, and what they deliberately left for later:
+
+- The LOCAL-day nutrition count is now COMPUTED here — the roadmap-22 seam is closed. The calorie
+  engine consumes `nutritionLoggedDayCount` (≥10 of 14 days), and roadmap 22 deliberately left the
+  COUNT to the caller. `countNutritionDaysInWindow` (`domain/nutrition/nutritionDiary.ts`) is that
+  count: the number of DISTINCT LOCAL days in the 14-day window on which at least one `nutrition_log`
+  exists, bucketing each log through the roadmap-19 `dayWindow` (REUSED, not re-derived). It is a
+  LOCAL-day count, NOT raw UTC days and NOT log ROWS — three logs on one local day count once, and a
+  log at 00:30 local counts for its local day (the exact property the roadmap-19 fix protects). Pure
+  and boundary-tested (00:30-local, multiple-logs-one-day, the 9-vs-10 flip). If this were wrong the
+  whole §6.7 eligibility gate would be wrong, so it is the load-bearing part of this roadmap.
+- CONFIRM BEFORE APPLY is the hard rule (docs/10 §10.2 "No change applies without confirmation").
+  Tapping Accept or Dismiss only STAGES a decision in the hook (`useWeeklyReview` `pending`); nothing
+  is applied until the user taps the final Confirm (`confirmPending`). The view renders the
+  Confirmation section (S-041 §6) only when a decision is staged; a hook test and a view test both
+  lock down that Accept/Dismiss call nothing until confirm.
+- The confirm path is ONE atomic `security invoker` RPC (`confirm_weekly_review_change`, migration
+  `20260723090000`), because a confirmation spans up to three tables and must not half-succeed:
+  applying the change, marking the review (recommendation status in the `recommendations` jsonb +
+  appending to `accepted_changes` + stamping `reviewed_at`) and writing the audit event all happen in
+  one transaction. It is `security invoker` like `substitute_session`, NOT a definer — the user owns
+  every row, so RLS is the right guard and no privilege escalation is needed. The safety-critical
+  decision was already made by the pure calorie engine when the review was assembled, and the applied
+  calorie target is READ FROM THE STORED REVIEW (`recommendations -> change -> proposedTargetCalories`),
+  not from a client parameter, so the client cannot smuggle in a different number and the audit trail
+  is faithful. Hardened like the other functions (`search_path = ''`, schema-qualified, granted to
+  `authenticated` only, anon revoked). The row is locked `for update` so concurrent confirms serialise.
+- An accepted CALORIE change becomes a NEW effective-dated `nutrition_targets` row (the roadmap-19
+  insert-not-overwrite path): the RPC inserts a row with the stored proposed calories, the protein
+  carried from the current effective target (resolved in SQL, defaulting to the §6.8 140 g when the
+  user has none), `effective_from` the device-local today the client passes, and `source =
+'weekly-review'`. The old targets are kept as history; `resolveCurrentNutritionTarget` picks the new
+  one up from today. A floor-clamped reduction (`professionalReviewRequired`) surfaces the docs/07
+  professional-review escalation in BOTH the Safety section and the confirmation panel before it can
+  be accepted.
+- An accepted STRENGTH or RUNNING recommendation marks the corresponding `progression_proposals` /
+  `running_progression_proposals` row `accepted` (the existing accept path) — SURFACED and confirmed,
+  NOT re-run. The recommendation carries the underlying `proposalId` (threaded through the assembler's
+  `SurfacedProposal`) so the RPC targets the right row. Applying a running stage advance to the forward
+  schedule remains the roadmap-17 seam (acceptance only records the decision). A dismissal marks the
+  review item — and, for strength/running, the underlying proposal — `dismissed`; it ALSO writes an
+  audit event, so the trail is complete (a declined safety-relevant proposal is a recorded decision,
+  not silence).
+- One audit event per confirmation (accept OR dismiss), queryable by `event_type`
+  (`weekly_review_change_accepted` / `_dismissed`) and `entity_type`/`entity_id`, its `details` jsonb
+  carrying the decision, rule version and evidence (docs/06 §6.10). `audit_events` already existed with
+  its RLS + insert grant, so NO schema change there.
+- Generation wires real data into the pure roadmap-22 engines. `generateReview`
+  (`features/review/weeklyReviewRepository.ts`) gathers the week's rows — config (`calorie_floor`,
+  `adaptive_adjustments_enabled`, `weekly_alcohol_unit_limit`), targets, weight measurements, sessions
+  - workout logs, the 14-day nutrition logs, drinks, and the proposed strength/running proposals — and
+    feeds `evaluateWeightTrend`, `computeWeeklyAdherence`, `countNutritionDaysInWindow`,
+    `summariseProteinWeek`, `summariseAlcoholWeek`, `evaluateCalorieAdjustment` and
+    `assembleWeeklyReview`, then upserts. The heavy lifting stays in the pure modules; every window uses
+    the LOCAL-day `dayWindow` boundary. The screen loads the latest stored review or offers to prepare
+    the current week's.
+- Only ONE migration + ONE RPC were added; the `WeeklyReviewRecommendation`/`SurfacedProposal` domain
+  shapes gained optional `change` (the concrete calorie target) and `proposalId` fields so the stored
+  review is self-contained for the confirm path. `database.types.ts` was regenerated for the new RPC.
+- This is a VISUAL screen: like the dashboard and the cardio player, the bento/section layout, the
+  confirmation panel contrast and light/dark both benefit from a SIMULATOR PASS the static gates
+  cannot fully close (unresolved debt).
+- Declared seams left untouched: notifications/reminders to prompt the review (roadmap 24); the
+  running stage-application loop (roadmap 17); the invalidating-event CAPTURE UI (the engine input
+  still defaults to "no event" — the toggle's natural home is a future settings surface). READINESS is
+  not part of the roadmap-22 review model, so "what needs attention"/"safety" surface the calorie
+  floor-clamp professional-review escalation and adherence/logging notes rather than a red readiness
+  item; wiring readiness history into the review is a future step.
 
 ## Known small issues to clean up (not blocking)
 

@@ -32,12 +32,28 @@ export type ReviewReason = { code: string; message: string };
 
 export type ReviewRecommendationSource = 'calorie' | 'strength' | 'running';
 
+// The CONCRETE calorie change a proposal would apply, stored on the recommendation so the
+// confirm path applies exactly what was proposed (roadmap 23). The RPC that applies an
+// accepted change reads `proposedTargetCalories` from this stored value, NOT from a client
+// parameter, so the applied target is always faithful to the engine's decision and the
+// audit trail is honest. Present only on an actionable calorie recommendation.
+export type CalorieProposedChange = {
+  proposedTargetCalories: number;
+  deltaKcal: number;
+  professionalReviewRequired: boolean;
+};
+
 // One recommendation in the review. `actionable` is true when there is a concrete change the
 // user could accept (a calorie proposal, a strength increase, a running advance); `status`
 // tracks its lifecycle — 'proposed' when actionable and awaiting a decision, 'accepted' /
 // 'dismissed' once decided (carried through from a stored proposal), or 'none' for a purely
 // informational item (no-change / not-eligible). `evidence` is the engine's inputs and
 // `ruleVersion` is that engine's version — both stored for the audit trail.
+//
+// `proposalId` is the underlying progression_proposals / running_progression_proposals row
+// the confirm path marks accepted/dismissed (strength/running only — a calorie change has
+// no separate proposal row, it applies a new nutrition_targets row). `change` is the
+// concrete calorie change (calorie only). Both are what roadmap 23's confirm flow targets.
 export type WeeklyReviewRecommendation = {
   source: ReviewRecommendationSource;
   decision: string;
@@ -47,6 +63,8 @@ export type WeeklyReviewRecommendation = {
   reasons: ReviewReason[];
   evidence: unknown;
   ruleVersion: string;
+  proposalId?: string;
+  change?: CalorieProposedChange;
 };
 
 // The week's metric snapshot. Each series is the honest output of its engine — a null where
@@ -80,6 +98,11 @@ export type WeeklyReview = {
 // progression_proposals / running_progression_proposals; NOT re-run here). Its own status
 // and rule version travel with it into the review.
 export type SurfacedProposal = {
+  // The progression_proposals / running_progression_proposals row id, so the confirm path
+  // can mark the right row accepted/dismissed. Optional for the pure assembler's contract
+  // (a caller may present a proposal with no row behind it), but generation always supplies
+  // it so the surfaced recommendation is actionable end to end.
+  proposalId?: string;
   decision: string;
   summary: string;
   reasons: ReviewReason[];
@@ -158,6 +181,19 @@ export function assembleWeeklyReview(
   const calorieActionable =
     input.calorie.decision === 'propose-reduction' ||
     input.calorie.decision === 'propose-increase';
+  // Attach the concrete change ONLY when the proposal is actionable and its numbers are
+  // present, so the confirm path applies exactly what the engine proposed. A no-change /
+  // not-eligible calorie item carries no change (nothing to apply).
+  const calorieChange: CalorieProposedChange | null =
+    calorieActionable &&
+    input.calorie.proposedTargetCalories !== null &&
+    input.calorie.deltaKcal !== null
+      ? {
+          deltaKcal: input.calorie.deltaKcal,
+          professionalReviewRequired: input.calorie.professionalReviewRequired,
+          proposedTargetCalories: input.calorie.proposedTargetCalories,
+        }
+      : null;
   recommendations.push({
     actionable: calorieActionable,
     decision: input.calorie.decision,
@@ -167,6 +203,7 @@ export function assembleWeeklyReview(
     source: 'calorie',
     status: calorieActionable ? 'proposed' : 'none',
     summary: calorieSummary(input.calorie),
+    ...(calorieChange ? { change: calorieChange } : {}),
   });
 
   // Surfaced strength proposals (READ, not re-run). An 'increase' is actionable; a hold or
@@ -216,5 +253,6 @@ function surfacedRecommendation(
     source,
     status: actionable ? proposal.status : 'none',
     summary: proposal.summary,
+    ...(proposal.proposalId ? { proposalId: proposal.proposalId } : {}),
   };
 }

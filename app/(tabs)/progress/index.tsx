@@ -1,7 +1,7 @@
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback } from 'react';
 
-import { AppScreen, OfflineState } from '@/components/common';
+import { AppScreen, OfflineState, SecondaryButton } from '@/components/common';
 import { ProgressDashboardView } from '@/features/progress/ProgressDashboardView';
 import { useProgressDashboard } from '@/features/progress/useProgressDashboard';
 import { useNetworkStatus } from '@/lib/network/useNetworkStatus';
@@ -14,6 +14,7 @@ import { useNetworkStatus } from '@/lib/network/useNetworkStatus';
 // an explicit "not enough yet"), and the charts never use a misleading truncated axis
 // (the axis logic is the tested domain/progress/chartScale module).
 export default function ProgressScreen() {
+  const router = useRouter();
   const { reload, setWeeks, state, weeks } = useProgressDashboard();
   const { isOffline } = useNetworkStatus();
 
@@ -33,11 +34,17 @@ export default function ProgressScreen() {
       {showOffline ? (
         <OfflineState description="Your trends will appear here once you are back online." />
       ) : (
-        <ProgressDashboardView
-          onSelectWeeks={setWeeks}
-          state={state}
-          weeks={weeks}
-        />
+        <>
+          <ProgressDashboardView
+            onSelectWeeks={setWeeks}
+            state={state}
+            weeks={weeks}
+          />
+          <SecondaryButton
+            label="Weekly review"
+            onPress={() => router.push('/(tabs)/progress/review')}
+          />
+        </>
       )}
     </AppScreen>
   );

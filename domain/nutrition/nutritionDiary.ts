@@ -118,6 +118,71 @@ export function dayWindow(
   };
 }
 
+// Enumerate the local calendar days (YYYY-MM-DD) from `startDay` to `endDay` inclusive,
+// oldest first. Pure UTC date-part arithmetic on the calendar date alone (no clock
+// component), so it is immune to DST — it counts calendar days, not elapsed time. Used to
+// walk a fixed window (e.g. the last 14 days) day by day.
+function enumerateLocalDays(startDay: string, endDay: string): string[] {
+  const sParts = startDay.split('-');
+  const eParts = endDay.split('-');
+  const dayMs = 24 * 60 * 60 * 1000;
+  let cursor = Date.UTC(
+    Number(sParts[0]),
+    Number(sParts[1]) - 1,
+    Number(sParts[2]),
+  );
+  const end = Date.UTC(
+    Number(eParts[0]),
+    Number(eParts[1]) - 1,
+    Number(eParts[2]),
+  );
+  const days: string[] = [];
+  while (cursor <= end) {
+    const d = new Date(cursor);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    days.push(`${y}-${m}-${day}`);
+    cursor += dayMs;
+  }
+  return days;
+}
+
+// A logged entry as the day-count reads it: only its UTC instant matters.
+export type NutritionDayLog = { loggedAtIso: string };
+
+// Count the number of DISTINCT LOCAL days in the window [windowStartDay, windowEndDay]
+// (inclusive, YYYY-MM-DD) on which at least one nutrition_log exists (docs/06 §6.7). This
+// is the load-bearing input to the calorie-adjustment eligibility gate ("nutrition logged
+// on at least ten of fourteen days"), and roadmap 22 deliberately left the COUNT to the
+// caller — this is that caller.
+//
+// It MUST be a LOCAL-day count, not a raw UTC-day count and not a count of log ROWS: three
+// logs on one local day are ONE day, and a log made at 00:30 local time belongs to that
+// local day (the exact property the roadmap-19 dayWindow fix protects). Each candidate day
+// is bucketed through the same dayWindow used by the diary and the alcohol summary, so the
+// count agrees with what the user sees logged for each day. `offsetMinutes` follows
+// Date.getTimezoneOffset() (see dayWindow). A log outside the window is not counted.
+export function countNutritionDaysInWindow(
+  logs: readonly NutritionDayLog[],
+  windowStartDay: string,
+  windowEndDay: string,
+  offsetMinutes: number,
+): number {
+  const days = enumerateLocalDays(windowStartDay, windowEndDay);
+  let count = 0;
+  for (const dayIso of days) {
+    const { endIso, startIso } = dayWindow(dayIso, offsetMinutes);
+    const hasLog = logs.some(
+      (log) => log.loggedAtIso >= startIso && log.loggedAtIso <= endIso,
+    );
+    if (hasLog) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 // Group the day's entries by meal (in canonical order) and total them. Only meals that
 // have at least one entry appear. Calories sum as exact integers; protein is rounded to
 // two decimals after summing. An empty day yields no meals and zero totals.

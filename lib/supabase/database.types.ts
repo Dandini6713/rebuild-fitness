@@ -1342,6 +1342,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      confirm_weekly_review_change: {
+        Args: {
+          p_action: string
+          p_effective_from?: string
+          p_proposal_id?: string
+          p_review_id: string
+          p_source: string
+        }
+        Returns: Json
+      }
       seed_cardio_stages: { Args: never; Returns: number }
       seed_private_plan: {
         Args: { p_reset?: boolean; p_start_date: string }

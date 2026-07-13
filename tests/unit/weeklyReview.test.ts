@@ -221,6 +221,58 @@ describe('assembleWeeklyReview (docs/05 §5.7, docs/06 §6.1/§6.10)', () => {
     expect(strength?.status).toBe('none');
   });
 
+  it('attaches the concrete calorie change to an actionable proposal (for the confirm path)', () => {
+    const reduction = evaluateCalorieAdjustment({
+      adaptiveAdjustmentsEnabled: true,
+      adherencePercent: 90,
+      calorieFloor: 1500,
+      currentTarget: { calories: 2000 },
+      daysSinceTargetBegan: 30,
+      invalidatingEvent: false,
+      nutritionLoggedDayCount: 12,
+      weightTrend: { ...trend, changePerWeekKg: -0.02, direction: 'steady' },
+    });
+    const review = assembleWeeklyReview({
+      adherence: { completed: 3, percent: 90, planned: 4 },
+      alcohol,
+      calorie: reduction,
+      period: { end: '2026-07-13', start: '2026-07-07' },
+      proteinReport: summariseProteinWeek([140], 140),
+      weightTrend: trend,
+    });
+    const cal = review.recommendations.find((r) => r.source === 'calorie');
+    expect(cal?.change).toEqual({
+      deltaKcal: reduction.deltaKcal,
+      professionalReviewRequired: false,
+      proposedTargetCalories: reduction.proposedTargetCalories,
+    });
+  });
+
+  it('carries no change on a non-actionable calorie item', () => {
+    const review = assemble();
+    const cal = review.recommendations.find((r) => r.source === 'calorie');
+    expect(cal?.change).toBeUndefined();
+  });
+
+  it('threads a surfaced proposal id through for the confirm path', () => {
+    const review = assembleWeeklyReview({
+      adherence: { completed: 3, percent: 75, planned: 4 },
+      alcohol,
+      calorie,
+      period: { end: '2026-07-13', start: '2026-07-07' },
+      proteinReport: summariseProteinWeek([140], 140),
+      runningProposal: { ...runningProposal, proposalId: 'run-9' },
+      strengthProposals: [{ ...strengthProposal, proposalId: 'str-7' }],
+      weightTrend: trend,
+    });
+    expect(
+      review.recommendations.find((r) => r.source === 'strength')?.proposalId,
+    ).toBe('str-7');
+    expect(
+      review.recommendations.find((r) => r.source === 'running')?.proposalId,
+    ).toBe('run-9');
+  });
+
   it('omits progression recommendations when there are none', () => {
     const review = assembleWeeklyReview({
       adherence: { completed: 0, percent: null, planned: 0 },

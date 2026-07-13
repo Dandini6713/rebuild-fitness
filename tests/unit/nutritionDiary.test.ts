@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  countNutritionDaysInWindow,
   dayWindow,
   type DiaryEntry,
   isMealType,
@@ -203,5 +204,69 @@ describe('isMealType', () => {
     expect(isMealType('snacks')).toBe(true);
     expect(isMealType('brunch')).toBe(false);
     expect(isMealType('')).toBe(false);
+  });
+});
+
+describe('countNutritionDaysInWindow (docs/06 §6.7 — the load-bearing LOCAL-day count)', () => {
+  // A helper: one log at a given ISO instant.
+  const log = (loggedAtIso: string) => ({ loggedAtIso });
+
+  it('counts DISTINCT local days, not log rows (three logs on one day = one day)', () => {
+    // BST (UTC+1) → offsetMinutes -60. Three logs all on the local day 2026-07-10.
+    const logs = [
+      log('2026-07-10T08:00:00.000Z'),
+      log('2026-07-10T13:00:00.000Z'),
+      log('2026-07-10T20:00:00.000Z'),
+    ];
+    expect(
+      countNutritionDaysInWindow(logs, '2026-07-07', '2026-07-13', -60),
+    ).toBe(1);
+  });
+
+  it('a 00:30-local log counts for its LOCAL day, not a raw UTC day', () => {
+    // BST (UTC+1): 2026-07-10T23:30:00Z is 2026-07-11 00:30 local — it belongs to July 11.
+    const logs = [log('2026-07-10T23:30:00.000Z')];
+    // Windowed on July 11 only: counted.
+    expect(
+      countNutritionDaysInWindow(logs, '2026-07-11', '2026-07-11', -60),
+    ).toBe(1);
+    // Windowed on July 10 only: NOT counted (it is the next local day).
+    expect(
+      countNutritionDaysInWindow(logs, '2026-07-10', '2026-07-10', -60),
+    ).toBe(0);
+  });
+
+  it('the 9-vs-10 boundary flips eligibility', () => {
+    // 14-day window ending 2026-07-13. Nine distinct local days logged, then ten.
+    const nineDays = [];
+    for (let i = 0; i < 9; i += 1) {
+      const day = new Date(Date.UTC(2026, 6, 13) - i * 86_400_000);
+      nineDays.push(
+        log(new Date(day.getTime() + 12 * 3_600_000).toISOString()),
+      );
+    }
+    expect(
+      countNutritionDaysInWindow(nineDays, '2026-06-30', '2026-07-13', 0),
+    ).toBe(9);
+
+    const tenDays = [...nineDays];
+    const tenth = new Date(Date.UTC(2026, 6, 13) - 9 * 86_400_000);
+    tenDays.push(log(new Date(tenth.getTime() + 12 * 3_600_000).toISOString()));
+    expect(
+      countNutritionDaysInWindow(tenDays, '2026-06-30', '2026-07-13', 0),
+    ).toBe(10);
+  });
+
+  it('ignores logs outside the window and handles an empty window', () => {
+    const logs = [
+      log('2026-07-01T12:00:00.000Z'),
+      log('2026-07-20T12:00:00.000Z'),
+    ];
+    expect(
+      countNutritionDaysInWindow(logs, '2026-07-07', '2026-07-13', 0),
+    ).toBe(0);
+    expect(countNutritionDaysInWindow([], '2026-07-07', '2026-07-13', 0)).toBe(
+      0,
+    );
   });
 });
