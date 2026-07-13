@@ -201,26 +201,46 @@ invoker` transactional RPC (like `seed_private_plan`, NOT a definer like the rea
   precedence, the effort 7-vs-8 and amber once-vs-twice boundaries, the stage-9 ceiling, the
   missing-input fail-safes) and a pgTAP test (owner isolation, no-delete grant, the plan-week FK,
   anon denial). See the notes below on the confirmation model and the stage-application seam.
+- Roadmap 18, measurement logging. Weight and waist entry (S-034) with a raw history and a robust
+  rolling WEIGHT TREND (docs/06 §6.6). The load-bearing part is a pure, versioned engine
+  (`domain/measurements/weightTrend.ts`, `RULE_VERSION` `weight-trend/v1`): from the logged
+  measurements and a reference date it returns either a trend (the smoothed level, a direction and a
+  signed weekly rate) or an explicit insufficient-data result naming which threshold is unmet. It is
+  a seven-day EWMA implemented as a TIME-WEIGHTED mean — each reading's weight is `exp(−ageDays/7)`
+  from its ACTUAL elapsed time, not its position in a list — so missing days and same-day clusters
+  are handled correctly, unlike a naive per-sample EWMA that mis-weights skipped days. The
+  sufficiency gate is both-of: at least three weights in the last seven days AND at least six across
+  the last fourteen; below either it never dresses a number up as a trend. Only 'weight' rows feed
+  it; 'waist' is history only. `body_measurements` and its RLS ALREADY EXISTED (20260711090300 / 090500) and its columns cover the forms, so NO migration and NO change to `database.types.ts` were
+  needed, and none was added. `features/measurements/` mirrors the other logging features (narrow
+  repository + `useMeasurementLog`/`useMeasurements` hooks + pure `MeasurementFormView`/
+  `MeasurementHistoryView`, Zod validation) writing plain owner-scoped inserts under RLS — no trusted
+  RPC, because a measurement has no safety rule to violate. Reached from a rebuilt Log hub (S-030) on
+  the Log tab. Exhaustive weight-trend unit tests plus repository/hook/view tests. See the notes below.
 
 Not started:
 
-- Roadmap 18 onwards (the rest of the rules engine — calorie adjustments, weight trend — and the
-  remaining product surfaces). For running progression, what remains is APPLYING an accepted
-  stage advance to the forward schedule (a declared seam — see below) and choosing which stage a
-  scheduled cardio session plays (still the roadmap 16 seam: the player plays the lowest available
-  stage). For readiness, what remains is prompting a pre-session check before every gated session
-  (a declared seam) and, from roadmap 15, distinct cardio activity typing on the substitution
-  replacement and the actual next-morning reminder (roadmap 24).
+- Roadmap 19 onwards (the rest of the rules engine — calorie adjustments (docs/06 §6.7, which will
+  CONSUME the roadmap-18 weight trend), protein and alcohol summaries — and the remaining product
+  surfaces including the weekly review, roadmap 22). For running progression, what remains is
+  APPLYING an accepted stage advance to the forward schedule (a declared seam — see below) and
+  choosing which stage a scheduled cardio session plays (still the roadmap 16 seam: the player plays
+  the lowest available stage). For readiness, what remains is prompting a pre-session check before
+  every gated session (a declared seam) and, from roadmap 15, distinct cardio activity typing on the
+  substitution replacement and the actual next-morning reminder (roadmap 24). Food logging (S-031/
+  S-032) and alcohol logging (S-033) are the still-stubbed halves of the Log hub. Apple Health /
+  HealthKit measurement import is roadmap 27 — all measurements are manual for now.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
 `schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts`,
-`readinessClassification.ts`, `activitySubstitution.ts`, `cardioIntervalPlayer.ts` and
-`runningProgression.ts` are the real modules so far (pure plan-date/label helpers, the weekly
-scheduling rules, the catalogue grouping and guide-section shaping, the strength progression
-rules, the Achilles readiness classifier, the amber activity-substitution options, the cardio
-interval scheduler + cue events + pause arithmetic, and the running progression rules). The rest
-of the safety-critical rules engine (calorie adjustments, weight trend) is still ahead. When you
-build it, `docs/06_RULES_ENGINE.md` is the source of truth and every rule needs tests.
+`readinessClassification.ts`, `activitySubstitution.ts`, `cardioIntervalPlayer.ts`,
+`runningProgression.ts` and `domain/measurements/weightTrend.ts` are the real modules so far (pure
+plan-date/label helpers, the weekly scheduling rules, the catalogue grouping and guide-section
+shaping, the strength progression rules, the Achilles readiness classifier, the amber
+activity-substitution options, the cardio interval scheduler + cue events + pause arithmetic, the
+running progression rules, and the robust weight trend). The rest of the safety-critical rules
+engine (calorie adjustments) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the
+source of truth and every rule needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
 
@@ -856,6 +876,72 @@ How the running progression engine works and what it deliberately left for later
   reminder (roadmap 24 — the engine READS next-morning responses but schedules nothing); distinct
   cardio activity typing (roadmap 09/15/16 seam); and no change to the red block (14), the substitution
   flow (15) or the cardio player's device adapter (16).
+
+## Measurement logging boundaries carried out of Roadmap 18
+
+How measurement logging works and what it deliberately left for later:
+
+- No migration, and none was needed. `body_measurements` (`measurement_type` enum 'weight'|'waist',
+  `value numeric(7,2) > 0`, `unit`, `measured_at`, `conditions_note <= 500`) and its owner-scoped RLS
+  (`for all to authenticated`, `auth.uid() = user_id`) were laid down in 20260711090300 / 090500 and
+  cover the two forms exactly. So this roadmap adds no schema, no forward migration and no change to
+  `lib/supabase/database.types.ts` — stated explicitly rather than inventing a migration. The pgTAP
+  suite is unchanged (nothing DB-side changed); the existing `body_measurements` RLS test still covers
+  owner isolation.
+- A PLAIN owner-scoped logging feature, no trusted RPC. The client legitimately owns its measurements
+  and there is no safety rule it could violate by logging one (unlike readiness's trusted classifier
+  or the red session-start block), so a direct owner-scoped INSERT under RLS is exactly right.
+  `features/measurements/measurementRepository.ts` does a plain `insert` (the client passes its own
+  `user_id`; RLS also checks `auth.uid()`), and offline fails HONESTLY (`status: 'offline'`) — the
+  write is server-side, so it is not pretended and nothing is held/replayed (a fuller offline queue is
+  a noted seam, not needed for a plain measurement). Zod validation
+  (`measurementSchema.ts`) IS the boundary that keeps malformed numbers out: per-type bounds
+  (weight 20–500 kg, waist 20–300 cm), at most two decimal places (the numeric(7,2) precision), a
+  non-future `measured_at` (back-dating IS allowed), and a <= 500-char note. British English throughout.
+- The weight trend is the load-bearing part (docs/06 §6.6), pure and versioned.
+  `domain/measurements/weightTrend.ts` (`RULE_VERSION` `weight-trend/v1`) takes the measurements and a
+  reference date and returns the §6.1-style shape: a status, the inputs/counts used and the rule
+  version. `evaluateWeightTrend` never writes — it computes.
+- EWMA-WITH-MISSING-DAYS and how gaps are weighted (the subtle bug this exists to avoid). The trend is
+  a seven-day exponentially weighted moving average, but implemented as a TIME-WEIGHTED mean: each
+  reading r at age `a` days before the reference date carries weight `w = exp(−a / 7)`, derived from
+  its ACTUAL elapsed time, NOT its position in a list. The reported `trendKg` is the weighted mean of
+  the readings (the EWMA level at the reference date), and `changePerWeekKg` / `direction` come from a
+  time-weighted linear fit of value against time. A naive per-sample EWMA (`s = α·x + (1−α)·s_prev`
+  with a fixed α per reading) assumes one reading per equal step, so it silently mis-weights when days
+  are skipped and cannot even tell two series apart that share the same readings in the same order but
+  different gaps. The tests prove the difference directly: identical naive output but different (and
+  correct) time-weighted trends for tight vs wide spacing, and exact same-day aggregation by value.
+  The trend is computed from the readings inside the 14-day sufficiency window; readings older than 14
+  days do not pull on it.
+- The two sufficiency thresholds and the honest insufficient-data state. Both must hold to conclude
+  anything: at least THREE weights within the last seven days AND at least SIX across the last
+  fourteen (docs/06 §6.6, read as "do not conclude from fewer than three-in-seven OR fewer than
+  six-in-fourteen"). Below either, the function returns `status: 'insufficient-data'` with
+  `unmetThresholds` naming which gate(s) failed — never a number dressed up as a trend. Boundaries are
+  proven at and just below both (3-in-7 and 6-in-14), plus empty, single-measurement, out-of-order and
+  future-dated inputs.
+- RAW-vs-TREND separation in the UI (docs/06 §6.6). `MeasurementHistoryView` shows the raw logged
+  readings and the smoothed trend in SEPARATE cards with different headings, so a trend is never
+  mistaken for a measurement. When there is not enough data for a trend, the raw weights STILL show and
+  the trend card explains plainly which threshold is unmet ("Log at least three weights within a
+  week…") — it never hides the section or shows a misleading value. A view test locks this down.
+- WEIGHT-ONLY feeds the trend. `evaluateWeightTrend` accepts a mixed history (so the repository can
+  pass rows straight through) but filters to `type === 'weight'` internally; 'waist' rows are history
+  only and never affect the trend or the sufficiency counts (both proven by test). The repository
+  splits weight and waist into separate lists for the sectioned history.
+- The §6.7 calorie-adjustment SEAM (declared, not built). docs/06 §6.7 (roadmap 19/22) will CONSUME
+  this trend: the calorie-adjustment rules read the signed `changePerWeekKg` (the deadband on the
+  `direction` label is display-only, so §6.7 reads the numeric rate, not the word) against the
+  0.2–0.6 kg/week target band, gated by their own data-sufficiency rules. This roadmap PRODUCES and
+  DISPLAYS the trend; it does not drive any target change. The weekly review's use of the trend is
+  roadmap 22, and Apple Health / HealthKit import is roadmap 27 — all measurements here are manual.
+- The Log hub and the entry seams. The Log tab is now a small stack (`app/(tabs)/log/`): the hub
+  (S-030) offers Weight and Waist as real logging plus a measurement-history entry, with Food (S-031/
+  S-032) and Alcohol (S-033) shown as honest, clearly-disabled placeholders for later roadmaps rather
+  than hidden. The date control is a compact relative-day chooser (Today … 6 days ago) covering the
+  common back-dating case; a full date/time picker is a later polish. There is no in-hub "recent
+  entries" list beyond the history screen, and no charts yet (S-040 progress cards are a later item).
 
 ## Known small issues to clean up (not blocking)
 
