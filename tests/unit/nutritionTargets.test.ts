@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   computeNutrientProgress,
+  DEFAULT_PROTEIN_TARGET_G,
   type NutritionTarget,
   resolveCurrentNutritionTarget,
 } from '@/domain/nutrition/nutritionTargets';
@@ -48,6 +49,38 @@ describe('resolveCurrentNutritionTarget', () => {
   it('returns null when every target is still in the future', () => {
     const targets = [target('2026-08-01', 1900, 150)];
     expect(resolveCurrentNutritionTarget(targets, '2026-07-12')).toBeNull();
+  });
+
+  it('treats effective_from one day before today as active (on-or-before)', () => {
+    const targets = [
+      target('2026-07-11', 2000, 150),
+      target('2026-07-13', 1950, 150),
+    ];
+    // Today is the 12th: yesterday's target is active, tomorrow's is not yet.
+    expect(
+      resolveCurrentNutritionTarget(targets, '2026-07-12')?.effectiveFrom,
+    ).toBe('2026-07-11');
+  });
+
+  it('keeps history: a new target is a later row, and the older one stays resolvable for its own dates', () => {
+    const history = [
+      target('2026-06-01', 2200, 140),
+      target('2026-07-01', 2100, 145),
+    ];
+    // The current target on a June date is still the June row (nothing overwrote it).
+    expect(resolveCurrentNutritionTarget(history, '2026-06-15')?.calories).toBe(
+      2200,
+    );
+    // And on a July date it is the July row.
+    expect(resolveCurrentNutritionTarget(history, '2026-07-15')?.calories).toBe(
+      2100,
+    );
+  });
+});
+
+describe('DEFAULT_PROTEIN_TARGET_G', () => {
+  it('begins at approximately 140 g (docs/06 §6.8)', () => {
+    expect(DEFAULT_PROTEIN_TARGET_G).toBe(140);
   });
 });
 

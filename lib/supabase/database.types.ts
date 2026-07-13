@@ -501,6 +501,87 @@ export type Database = {
         }
         Relationships: []
       }
+      meal_template_items: {
+        Row: {
+          calories: number
+          carbohydrate_g: number | null
+          created_at: string
+          description: string
+          fat_g: number | null
+          food_id: string | null
+          id: string
+          meal_template_id: string
+          protein_g: number
+          serving_quantity: number
+          user_id: string
+        }
+        Insert: {
+          calories: number
+          carbohydrate_g?: number | null
+          created_at?: string
+          description: string
+          fat_g?: number | null
+          food_id?: string | null
+          id?: string
+          meal_template_id: string
+          protein_g?: number
+          serving_quantity?: number
+          user_id: string
+        }
+        Update: {
+          calories?: number
+          carbohydrate_g?: number | null
+          created_at?: string
+          description?: string
+          fat_g?: number | null
+          food_id?: string | null
+          id?: string
+          meal_template_id?: string
+          protein_g?: number
+          serving_quantity?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meal_template_items_food_id_user_id_fkey"
+            columns: ["food_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "foods"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "meal_template_items_meal_template_id_user_id_fkey"
+            columns: ["meal_template_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "meal_templates"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      meal_templates: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       nutrition_logs: {
         Row: {
           calories: number

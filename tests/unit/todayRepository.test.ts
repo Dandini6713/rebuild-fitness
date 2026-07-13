@@ -24,6 +24,10 @@ function backend(overrides: Partial<TodayBackend>): TodayBackend {
     fetchCurrentTargets: jest.fn<TodayBackend['fetchCurrentTargets']>(
       async () => ({ data: [], error: null }),
     ),
+    fetchDayNutrition: jest.fn<TodayBackend['fetchDayNutrition']>(async () => ({
+      data: [],
+      error: null,
+    })),
     startSession: jest.fn<TodayBackend['startSession']>(async () => ({
       data: { id: 'log-1' },
       error: null,
@@ -195,13 +199,22 @@ describe('today repository — load', () => {
     });
   });
 
-  it('builds the current nutrition target with no intake yet', async () => {
+  it('builds the current nutrition target with real intake summed from the day', async () => {
+    // Roadmap 19 closed the intake seam: Today sums today's nutrition_logs and shows
+    // progress against the current effective target, not just the target.
     const repo = createTodayRepository(
       backend({
         fetchCurrentTargets: async () => ({
           data: [
             { calories: 2200, effective_from: '2026-06-01', protein_g: 140 },
             { calories: 2100, effective_from: '2026-07-01', protein_g: 145 },
+          ],
+          error: null,
+        }),
+        fetchDayNutrition: async () => ({
+          data: [
+            { calories: 500, protein_g: 30 },
+            { calories: 700, protein_g: 45.5 },
           ],
           error: null,
         }),
@@ -214,12 +227,60 @@ describe('today repository — load', () => {
     }
     expect(result.data.nutrition).toEqual({
       calories: 2100,
-      caloriesProgress: null,
+      caloriesProgress: {
+        consumed: 1200,
+        percent: 57,
+        remaining: 900,
+        target: 2100,
+      },
       effectiveFrom: '2026-07-01',
       kind: 'target',
       proteinG: 145,
-      proteinProgress: null,
+      proteinProgress: {
+        consumed: 75.5,
+        percent: 52,
+        remaining: 69.5,
+        target: 145,
+      },
     });
+  });
+
+  it('shows zero-of-target progress on an empty day, not null intake', async () => {
+    const repo = createTodayRepository(
+      backend({
+        fetchCurrentTargets: async () => ({
+          data: [
+            { calories: 2100, effective_from: '2026-07-01', protein_g: 145 },
+          ],
+          error: null,
+        }),
+      }),
+    );
+    const result = await repo.load(TODAY);
+    if (result.status !== 'ready') {
+      throw new Error('expected ready');
+    }
+    if (result.data.nutrition.kind !== 'target') {
+      throw new Error('expected a target');
+    }
+    expect(result.data.nutrition.caloriesProgress).toEqual({
+      consumed: 0,
+      percent: 0,
+      remaining: 2100,
+      target: 2100,
+    });
+  });
+
+  it('surfaces an error when the nutrition read fails', async () => {
+    const repo = createTodayRepository(
+      backend({
+        fetchDayNutrition: async () => ({
+          data: null,
+          error: { message: 'boom' },
+        }),
+      }),
+    );
+    expect((await repo.load(TODAY)).status).toBe('error');
   });
 });
 

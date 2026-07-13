@@ -217,30 +217,47 @@ invoker` transactional RPC (like `seed_private_plan`, NOT a definer like the rea
   `MeasurementHistoryView`, Zod validation) writing plain owner-scoped inserts under RLS — no trusted
   RPC, because a measurement has no safety rule to violate. Reached from a rebuilt Log hub (S-030) on
   the Log tab. Exhaustive weight-trend unit tests plus repository/hook/view tests. See the notes below.
+- Roadmap 19, nutrition logging. The food half of the Log hub (S-030/S-031/S-032): a food diary,
+  personal foods, quick entries, saved meals and effective-dated calorie/protein targets, all
+  user-entered (no external food API). ONE new forward migration (`20260720090000`) adds
+  `meal_templates` and its child `meal_template_items` (owner-scoped RLS, composite `(id, user_id)`
+  FKs, indexes matching the existing tables); `nutrition_targets`, `foods` and `nutrition_logs`
+  already existed and were NOT touched. Effective-dated targets keep HISTORY: a new target is a NEW
+  row with a later `effective_from`, and "the current target" is resolved (pure
+  `resolveCurrentNutritionTarget`) as the latest `effective_from` on or before today. The daily-diary
+  totals and the food→log macro scaling are pure, tested functions (`domain/nutrition/nutritionDiary.ts`)
+  — integer calories sum exactly, protein rounds to two decimals. `features/nutrition/` mirrors
+  `features/measurements` (narrow repository + hooks + pure views, Zod validation, plain owner-scoped
+  inserts under RLS — no trusted RPC). The Today intake seam is now CLOSED: `features/today` sums the
+  day's `nutrition_logs` and shows real calorie/protein progress. pgTAP for the new tables. See the
+  notes below.
 
 Not started:
 
-- Roadmap 19 onwards (the rest of the rules engine — calorie adjustments (docs/06 §6.7, which will
-  CONSUME the roadmap-18 weight trend), protein and alcohol summaries — and the remaining product
-  surfaces including the weekly review, roadmap 22). For running progression, what remains is
+- Roadmap 20 onwards (the rest of the rules engine — calorie adjustments (docs/06 §6.7, which will
+  CONSUME the roadmap-18 weight trend and the roadmap-19 targets/logs), the protein weekly-average
+  report (§6.8) and alcohol summaries — and the remaining product surfaces including the weekly
+  review, roadmap 22). For running progression, what remains is
   APPLYING an accepted stage advance to the forward schedule (a declared seam — see below) and
   choosing which stage a scheduled cardio session plays (still the roadmap 16 seam: the player plays
   the lowest available stage). For readiness, what remains is prompting a pre-session check before
   every gated session (a declared seam) and, from roadmap 15, distinct cardio activity typing on the
-  substitution replacement and the actual next-morning reminder (roadmap 24). Food logging (S-031/
-  S-032) and alcohol logging (S-033) are the still-stubbed halves of the Log hub. Apple Health /
-  HealthKit measurement import is roadmap 27 — all measurements are manual for now.
+  substitution replacement and the actual next-morning reminder (roadmap 24). Alcohol logging (S-033)
+  is the still-stubbed half of the Log hub (roadmap 20; its `alcohol_logs` table already exists). Apple
+  Health / HealthKit measurement import is roadmap 27 — all measurements are manual for now.
 
 Most of the `domain/` tree is still empty placeholders; `domain/training/planSchedule.ts`,
 `schedulingRules.ts`, `exerciseCatalogue.ts`, `strengthProgression.ts`,
 `readinessClassification.ts`, `activitySubstitution.ts`, `cardioIntervalPlayer.ts`,
-`runningProgression.ts` and `domain/measurements/weightTrend.ts` are the real modules so far (pure
-plan-date/label helpers, the weekly scheduling rules, the catalogue grouping and guide-section
-shaping, the strength progression rules, the Achilles readiness classifier, the amber
-activity-substitution options, the cardio interval scheduler + cue events + pause arithmetic, the
-running progression rules, and the robust weight trend). The rest of the safety-critical rules
-engine (calorie adjustments) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the
-source of truth and every rule needs tests.
+`runningProgression.ts`, `domain/measurements/weightTrend.ts` and `domain/nutrition/` (the
+effective-dated target resolver `nutritionTargets.ts` and the daily-diary totals + macro scaling
+`nutritionDiary.ts`) are the real modules so far (pure plan-date/label helpers, the weekly scheduling
+rules, the catalogue grouping and guide-section shaping, the strength progression rules, the Achilles
+readiness classifier, the amber activity-substitution options, the cardio interval scheduler + cue
+events + pause arithmetic, the running progression rules, the robust weight trend, and the nutrition
+target/diary helpers). The rest of the safety-critical rules engine (the calorie-adjustment engine,
+§6.7) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every
+rule needs tests.
 
 ## Why PR numbers and roadmap numbers don't match
 
@@ -942,6 +959,69 @@ How measurement logging works and what it deliberately left for later:
   than hidden. The date control is a compact relative-day chooser (Today … 6 days ago) covering the
   common back-dating case; a full date/time picker is a later polish. There is no in-hub "recent
   entries" list beyond the history screen, and no charts yet (S-040 progress cards are a later item).
+
+## Nutrition logging boundaries carried out of Roadmap 19
+
+How nutrition logging works and what it deliberately left for later:
+
+- ONE new migration, and only for the genuinely-missing table. `nutrition_targets`, `foods` and
+  `nutrition_logs` already existed with the right shape and RLS (20260711090300 / 090500) and were
+  NOT recreated or altered. The one missing piece — `meal_templates`, "reusable collections of foods
+  and quantities" (docs/05 §5.7) — is added by `20260720090000` as a PARENT (`meal_templates`: a
+  name) plus CHILD (`meal_template_items`), exactly like a workout template and its exercises, because
+  a meal IS a collection. Each item is modelled on `nutrition_logs`: an optional `food_id` link PLUS
+  its own inline `description` and macros, so an item is self-contained and survives the linked food
+  being deleted (`on delete set null` on `food_id`) or edited — the snapshot is what the template
+  promised. Both tables are owner-scoped with the composite `(id, user_id)` FK convention (a child can
+  never point at another user's parent) and RLS/indexes matching the existing tables. `meal_template_items`
+  is write-once (edit = delete + reinsert, like `cardio_interval_steps`), so no `updated_at` trigger.
+  `database.types.ts` was regenerated; a pgTAP test (`meal_templates.test.sql`) proves owner isolation,
+  the cascade on parent delete, the food-link null-on-delete, the composite-FK block and anon denial.
+- Effective-dated targets keep HISTORY, they are never overwritten (docs/05 §5.7). Setting a new
+  target INSERTS a new `nutrition_targets` row with a later `effective_from`; "the current target" is
+  a CALCULATION, the pure `resolveCurrentNutritionTarget` picking the latest `effective_from` on or
+  before the reference date (on-or-before — a target effective_from today IS active today; the
+  off-by-one edge is the subtle bug here and is tested at the boundary). `unique(user_id, effective_from)`
+  makes a same-date collision a clean, named "a target already starts on that date" error, not a crash.
+  The protein default begins at ~140 g (`DEFAULT_PROTEIN_TARGET_G`, §6.8); calories have no default —
+  the user sets them (the ADAPTIVE calorie proposal is §6.7, roadmap 22).
+- Quick entry vs saved food vs saved meal — three log paths, one `nutrition_logs` shape. A QUICK entry
+  (source `'quick'`) writes calories/protein directly (`food_id` null — the column is nullable for
+  exactly this). A SAVED food (source `'custom'`) is SCALED by a serving quantity via the pure
+  `scaleMacros` before writing, so the stored row holds the ACTUAL consumed macros. A SAVED MEAL
+  (source `'template'`) is expanded server-side by `logMealTemplate`: it reads the template's items and
+  writes one scaled `nutrition_logs` row per item under one meal and time. Recent foods are DERIVED
+  from the log (most-recently-logged, de-duplicated by food or by description); favourites are the
+  `foods.favourite` flag. All plain owner-scoped inserts under RLS — NO trusted RPC, because nutrition
+  has no safety rule to violate (unlike readiness's classifier or the red session-start block). Zod
+  validation IS the boundary; offline fails honestly (`status: 'offline'`) and nothing is held.
+- Daily totals are pure and exact. `summariseDiary` (`domain/nutrition/nutritionDiary.ts`) groups the
+  day's entries by meal (breakfast/lunch/dinner/snacks) and totals them: calories are integers and sum
+  EXACTLY (no floating-point drift — the concern the brief flags), protein rounds to two decimals at
+  each boundary. The diary shows totals vs the current effective target (remaining calories, protein
+  progress); with no target it shows totals alone, never a meaningless "remaining".
+- The Today intake seam is CLOSED. `features/today/todayRepository.ts` previously supplied `null`
+  intake ("until the food-logging roadmap item lands"). It now sums the day's `nutrition_logs`
+  (integer calories exact, protein rounded) and passes real intake into `buildNutrition`, so Today
+  shows calorie/protein PROGRESS against the target, not just the target. An empty day is honest
+  zero-of-target progress (not null, not fabricated). The Today repository test was updated to assert
+  real totals. The day window is a UTC `[start, end]` for the calendar date (a full timezone story is
+  a noted single-user-MVP seam).
+- The §6.7 / §6.8 engine SEAMS (declared, not built). The calorie-adjustment engine (§6.7, roadmap 22)
+  will READ the effective target (`resolveCurrentNutritionTarget`) and the day's/period's
+  `nutrition_logs`, together with the roadmap-18 weight trend and logging adherence, to PROPOSE target
+  changes — it is not built here, and this roadmap drives NO target change. The protein weekly-average
+  report (§6.8) and the "disable adaptive adjustments" config also belong with that engine. Alcohol
+  logging (S-033, roadmap 20, `alcohol_logs` already exists), external food-API / barcode lookup
+  (explicitly out — MVP is manual) and Apple Health (roadmap 27) are untouched.
+- The Log hub and screens. The Log tab stack (`app/(tabs)/log/`) now leads with Food and nutrition
+  (diary, add food / quick entry, daily targets, saved meals), keeps Measurements, and shows Alcohol as
+  an honest disabled placeholder. `features/nutrition/` mirrors `features/measurements`: narrow
+  repository + hooks (`useNutritionDiary`, `useNutritionTargets`, `useFoodLibrary`, `useMealTemplates`,
+  `useFoodLog`) + pure views (`FoodDiaryView`, `NutritionTargetView`, `FoodEntryView`, `FoodFormView`,
+  `MealTemplatesView`). Form inputs use accessibility labels distinct from their visible label text
+  (matching `MeasurementFormView`) so a screen reader — and `getByLabelText` — resolves each field
+  unambiguously.
 
 ## Known small issues to clean up (not blocking)
 

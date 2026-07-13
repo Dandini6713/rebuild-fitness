@@ -49,11 +49,18 @@ type RawTarget = {
   effective_from: string;
   protein_g: number;
 };
+type RawNutritionLog = { calories: number; protein_g: number };
 
 export type TodayBackend = {
   fetchCurrentTargets(
     todayIso: string,
   ): Promise<{ data: RawTarget[] | null; error: BackendError }>;
+  // Today's nutrition_logs (roadmap 19), so Today shows real calorie and protein
+  // intake against the target, not just the target. Keyed by the day's time window.
+  fetchDayNutrition(
+    startIso: string,
+    endIso: string,
+  ): Promise<{ data: RawNutritionLog[] | null; error: BackendError }>;
   fetchTemplates(
     templateIds: string[],
   ): Promise<{ data: RawTemplate[] | null; error: BackendError }>;
@@ -146,6 +153,15 @@ export function createSupabaseTodayBackend(
       return { data, error };
     },
 
+    async fetchDayNutrition(startIso, endIso) {
+      const { data, error } = await client
+        .from('nutrition_logs')
+        .select('calories, protein_g')
+        .gte('logged_at', startIso)
+        .lte('logged_at', endIso);
+      return { data, error };
+    },
+
     async startSession({ scheduledSessionId, startedAtIso }) {
       // The trusted RPC captures auth.uid() itself and is the only writer of a
       // starting workout_logs row; the client no longer inserts directly. It returns
@@ -177,10 +193,22 @@ const START_ERROR =
 const START_BLOCKED =
   'This session will not start because your latest readiness check was red.';
 
-// Builds the nutrition section from the effective-dated targets. Intake is not yet
-// sourced anywhere, so progress is left null and the view shows the target alone
-// rather than a fabricated zero. The progress fields are wired for the food-logging
-// roadmap item, which will supply a real intake.
+// Sum a day's nutrition_logs into total intake. Calories are integers (an exact sum);
+// protein grams are rounded to two decimals after summing so a long day never leaks
+// binary floating-point error into the total.
+function sumDayIntake(rows: RawNutritionLog[]): DailyIntake {
+  let calories = 0;
+  let proteinG = 0;
+  for (const row of rows) {
+    calories += row.calories;
+    proteinG += row.protein_g;
+  }
+  return { calories, proteinG: Math.round(proteinG * 100) / 100 };
+}
+
+// Builds the nutrition section from the effective-dated targets and the day's intake
+// (roadmap 19 wired the intake in). When a target is set, progress is computed against
+// today's summed calories and protein; with no target the view shows "no target set".
 function buildNutrition(
   targets: RawTarget[],
   todayIso: string,
@@ -295,9 +323,23 @@ export function createTodayRepository(backend: TodayBackend) {
       if (targetResult.error) {
         return { message: READ_ERROR, status: 'error' };
       }
-      // No intake source yet (nutrition_logs are not written until a later step),
-      // so intake is null and the target renders on its own.
-      const nutrition = buildNutrition(targetResult.data ?? [], todayIso, null);
+      // Sum today's logged nutrition (roadmap 19 closed this seam) so Today shows real
+      // calorie and protein progress against the target. Calories are integers and sum
+      // exactly; protein is rounded to two decimals to avoid floating-point drift. An
+      // empty day sums to zero intake, which still yields honest 0-of-target progress.
+      const nutritionResult = await backend.fetchDayNutrition(
+        `${todayIso}T00:00:00.000Z`,
+        `${todayIso}T23:59:59.999Z`,
+      );
+      if (nutritionResult.error) {
+        return { message: READ_ERROR, status: 'error' };
+      }
+      const intake = sumDayIntake(nutritionResult.data ?? []);
+      const nutrition = buildNutrition(
+        targetResult.data ?? [],
+        todayIso,
+        intake,
+      );
 
       return { data: { adherence, nutrition, session }, status: 'ready' };
     },

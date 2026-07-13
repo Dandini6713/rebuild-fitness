@@ -11,6 +11,11 @@ export type NutritionTarget = {
   proteinG: number;
 };
 
+// The default daily protein target when a user first sets one (docs/06 §6.8: "begins
+// at approximately 140 g per day"). Calories have no default here — the user sets
+// them (the adaptive calorie proposal is docs/06 §6.7, roadmap 22).
+export const DEFAULT_PROTEIN_TARGET_G = 140;
+
 // The current target is the one with the latest effective_from that is on or
 // before today. Future-dated targets are ignored until they take effect. Returns
 // null when no target applies yet, so the UI shows "no target set" rather than a

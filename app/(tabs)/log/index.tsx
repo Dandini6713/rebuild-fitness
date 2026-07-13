@@ -10,10 +10,11 @@ import {
 } from '@/components/common';
 import { useNetworkStatus } from '@/lib/network/useNetworkStatus';
 
-// The log hub (docs/03 S-030). The four logging actions are Food, Alcohol, Weight and
-// Waist. Roadmap 18 delivers Weight and Waist as real owner-scoped logging; Food and
-// Alcohol are later roadmap items, shown here as honest, clearly-disabled placeholders
-// rather than hidden, so the shape of the hub is truthful about what works today.
+// The log hub (docs/03 S-030). The logging actions are Food, Weight, Waist and (later)
+// Alcohol. Roadmap 18 delivered Weight and Waist; roadmap 19 delivers Food (the diary,
+// personal foods, quick entries, saved meals and daily targets). Alcohol is roadmap 20,
+// shown here as an honest, clearly-disabled placeholder rather than hidden, so the shape
+// of the hub is truthful about what works today.
 export default function LogScreen() {
   const router = useRouter();
   const { isOffline } = useNetworkStatus();
@@ -21,9 +22,29 @@ export default function LogScreen() {
   return (
     <AppScreen eyebrow="Keep it honest, keep it useful" title="Log">
       {isOffline ? (
-        <OfflineState description="You will be able to record weight and waist here once you are back online." />
+        <OfflineState description="You will be able to record food, weight and waist here once you are back online." />
       ) : (
         <>
+          <Card>
+            <AppText variant="heading">Food and nutrition</AppText>
+            <AppText tone="secondary" variant="body">
+              Keep your food diary, log a quick entry, save foods and meals, and
+              set your daily calorie and protein targets.
+            </AppText>
+            <PrimaryButton
+              label="Open food diary"
+              onPress={() => router.push('/log/diary')}
+            />
+            <SecondaryButton
+              label="Add food or quick entry"
+              onPress={() => router.push('/log/food')}
+            />
+            <SecondaryButton
+              label="Daily targets"
+              onPress={() => router.push('/log/targets')}
+            />
+          </Card>
+
           <Card>
             <AppText variant="heading">Measurements</AppText>
             <AppText tone="secondary" variant="body">
@@ -45,16 +66,11 @@ export default function LogScreen() {
           </Card>
 
           <Card>
-            <AppText variant="heading">Food and drink</AppText>
+            <AppText variant="heading">Alcohol</AppText>
             <AppText tone="secondary" variant="body">
-              Logging food, and lager or alcohol, opens up in a later step. It
-              is not ready yet.
+              Logging lager or alcohol opens up in a later step. It is not ready
+              yet.
             </AppText>
-            <SecondaryButton
-              disabled
-              label="Log food (coming later)"
-              onPress={() => {}}
-            />
             <SecondaryButton
               disabled
               label="Log lager or alcohol (coming later)"
