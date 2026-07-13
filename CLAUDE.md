@@ -247,13 +247,31 @@ abv_percent / 1000` (568 ml at 5% ≈ 2.84), rounded to two decimals; calories a
   pgTAP for `drink_favourites` and the profiles column; the units function is tested for common pint
   sizes/strengths, the weekly summation and free-day counting for the local-day boundary. See the notes
   below.
+- Roadmap 21, progress dashboard. The Progress tab (S-040) is now a read-only DASHBOARD over the seven
+  series the earlier roadmaps produce — weight trend, waist, session adherence, strength, cardio,
+  protein and alcohol — in a 4-week or 12-week view (docs/09 §9.6). It computes NO new rules and
+  proposes nothing; it reuses the existing engines (weightTrend R18, computeWeeklyAdherence's shape,
+  stored alcohol units R20) and reads everything else as plain per-week totals. NO migration and NO
+  `database.types.ts` change (all series read existing tables), so none was added. No chart library was
+  added either: react-native-svg is not installed and a native module cannot be verified by static
+  checks/CI, so the charts are HAND-DRAWN from plain Views (bars) and an honest dot scatter (trends).
+  The load-bearing part is the PURE, tested scale/axis logic (`domain/progress/chartScale.ts`): bar
+  series are always zero-baselined, and the weight/waist trend uses a magnified NON-ZERO baseline that
+  is returned as data and always labelled, so a misleading truncated axis can never be produced.
+  Windows are weekly buckets on the roadmap-19 LOCAL-day boundary (`progressWindows.ts` reusing
+  `dayWindow`); the seven assemblers (`progressSeries.ts`) each handle sparse data honestly (raw points
+  plus an explicit "not enough yet", never a fabricated trend). `features/progress/` mirrors the other
+  features (narrow repository + `useProgressDashboard` hook + pure views), with a bento grid of unequal
+  tiles, one evergreen accent, and light/dark free from the semantic tokens. The weekly review
+  (roadmap 22) is a separate screen that will reuse these calculations. See the notes below.
 
 Not started:
 
-- Roadmap 21 onwards (the rest of the rules engine — calorie adjustments (docs/06 §6.7, which will
+- Roadmap 22 onwards (the rest of the rules engine — calorie adjustments (docs/06 §6.7, which will
   CONSUME the roadmap-18 weight trend and the roadmap-19 targets/logs) and the protein weekly-average
   report (§6.8) — and the remaining product surfaces including the weekly
-  review, roadmap 22, which will CONSUME the roadmap-20 alcohol data). For running progression, what
+  review, roadmap 22, which will CONSUME the roadmap-20 alcohol data and REUSE the roadmap-21 dashboard
+  calculations). For running progression, what
   remains is
   APPLYING an accepted stage advance to the forward schedule (a declared seam — see below) and
   choosing which stage a scheduled cardio session plays (still the roadmap 16 seam: the player plays
@@ -267,12 +285,15 @@ Most of the `domain/` tree is still empty placeholders; `domain/training/planSch
 `readinessClassification.ts`, `activitySubstitution.ts`, `cardioIntervalPlayer.ts`,
 `runningProgression.ts`, `domain/measurements/weightTrend.ts`, `domain/nutrition/` (the
 effective-dated target resolver `nutritionTargets.ts` and the daily-diary totals + macro scaling
-`nutritionDiary.ts`) and `domain/alcohol/alcoholUnits.ts` (UK units + the weekly summary) are the real
+`nutritionDiary.ts`) and `domain/alcohol/alcoholUnits.ts` (UK units + the weekly summary), plus
+`domain/progress/` (the pure chart scale/axis logic `chartScale.ts`, the weekly-bucket windowing
+`progressWindows.ts` and the seven per-series assemblers `progressSeries.ts`), are the real
 modules so far (pure plan-date/label helpers, the weekly scheduling
 rules, the catalogue grouping and guide-section shaping, the strength progression rules, the Achilles
 readiness classifier, the amber activity-substitution options, the cardio interval scheduler + cue
 events + pause arithmetic, the running progression rules, the robust weight trend, the nutrition
-target/diary helpers, and the alcohol units + weekly totals). The rest of the safety-critical rules engine (the calorie-adjustment engine,
+target/diary helpers, the alcohol units + weekly totals, and the dashboard scale/window/series
+calculations). The rest of the safety-critical rules engine (the calorie-adjustment engine,
 §6.7) is still ahead. When you build it, `docs/06_RULES_ENGINE.md` is the source of truth and every
 rule needs tests.
 
@@ -1121,6 +1142,74 @@ abvPercent) = volumeMl × abvPercent / 1000`, rounded to two decimals (the numer
   will READ these logs and the summary). (2) Any calorie-offset / "compensation" logic is FORBIDDEN, not
   a seam — it must never exist. (3) External drink databases / barcode lookup are explicitly out of MVP
   (all drink entry is manual). (4) The next-morning / notification concerns are unrelated (roadmap 24).
+
+## Progress dashboard boundaries carried out of Roadmap 21
+
+How the progress dashboard works and what it deliberately left for later:
+
+- READ-ONLY DISPLAY, no new rules. The Progress tab (docs/03 S-040) shows the seven series the earlier
+  roadmaps produce, in a 4-week or 12-week view. It computes NOTHING new and proposes NOTHING — it is a
+  presentation layer over existing data. It REUSES the engines rather than re-deriving them: the weight
+  trend is the roadmap-18 `evaluateWeightTrend` (with its own 7/14-day sufficiency), adherence follows
+  `computeWeeklyAdherence`'s completed-of-planned shape, and alcohol reads the stored per-drink `units`
+  (the roadmap-20 `computeUnits` output). Strength, cardio and protein are plain per-week totals. The
+  weekly review (roadmap 22) is a SEPARATE screen that will reuse these same calculations.
+- NO migration, and none was needed — stated, not invented. Every series reads a table that already
+  exists (`body_measurements`, `scheduled_sessions` + `workout_logs`, `cardio_logs`, `nutrition_logs` +
+  `nutrition_targets`, `alcohol_logs`). There is no schema change, no new RLS and NO change to
+  `lib/supabase/database.types.ts`; the pgTAP suite is untouched. `db reset` + `test:db` still pass
+  (135 tests) precisely because nothing DB-side changed.
+- The charting DECISION: hand-drawn from plain Views, NO new dependency. react-native-svg is not
+  installed, and adding a native module cannot be verified by the static gates or by CI (it also needs
+  jest mocking), which would put the green-CI requirement at risk for a screen whose real proof is a
+  simulator pass anyway. The dashboard's chart set is small and controlled, so the bars are flex-height
+  `View`s and the measurement trends are an honest dot SCATTER (a scatter implies no interpolation, so a
+  couple of readings look like a couple of readings — more honest for sparse data than a drawn line). If
+  a future need outgrows this (e.g. dense daily lines), react-native-svg via `expo install` is the
+  sanctioned next step; it was not pulled in casually here.
+- The NO-MISLEADING-AXIS guarantee lives in the pure, exhaustively tested `domain/progress/chartScale.ts`,
+  separated from any drawing (docs/09 §9.6). Two scale kinds: `computeBarScale` is ALWAYS zero-baselined
+  (a bar is only truthful from zero — counts, minutes, units, percentages), so a truncated bar axis
+  cannot be produced at all; `computePointScale` (weight, waist) chooses a magnified NON-ZERO baseline
+  because a 0-based axis flattens a real body-weight move, but the baseline is chosen BELOW the lowest
+  reading (never clipping a point) and RETURNED as data (`baseline`, `baselineIsZero`) so the view is
+  obliged to label it — the magnification is never silent. The `TrendChartView` renders that as an
+  "Axis starts at X, not zero" caption. A single reading is CENTRED (fraction ≈ 0.5) in a symmetric band
+  so one weigh-in never looks like a trend. The scale tests prove the baseline choice per kind, that
+  every fraction lands in [0,1] (baseline ≤ min, top ≥ max), the sparse/single/flat/empty mappings, and
+  that two same-shape series at different levels share fractions but carry different labelled baselines.
+- Per-series insufficient-data HONESTY, modelled on the weight-trend discipline for ALL series. Weight
+  delegates to the engine's own insufficient-data result. Waist needs at least two readings to state a
+  change; below that it is `insufficient` and only the raw dots show. The weekly bar series report
+  `hasData: false` when the window holds nothing, and each tile then shows an inviting "not enough yet"
+  message rather than a blank or a fabricated line. A week with no basis for a value is `null` (a gap),
+  distinct from a real zero — adherence with nothing planned is null (not 0 %), an alcohol-free week is a
+  real 0 (information, not absence).
+- The 4/12-week windows on the LOCAL-day boundary. `domain/progress/progressWindows.ts` splits each view
+  into seven-day buckets whose boundaries are the UTC instants of local midnight, REUSING the roadmap-19
+  `dayWindow` so the dashboard buckets a reading into exactly the same day the food diary and alcohol
+  summary would. `offsetMinutes` (Date.getTimezoneOffset()) is passed in from the hook, never read from
+  ambient state. Buckets abut with no gap and no overlap; date-typed rows (`scheduled_date`) bucket by
+  day, timestamp-typed rows (`logged_at`/`started_at`/`measured_at`) by instant. Tested end to end,
+  including the just-after-local-midnight edge that a raw-UTC boundary would mis-assign.
+- Light and dark are FREE via the semantic tokens. Every colour is read through `useAppTheme`; ONE
+  evergreen accent carries the emphasis (the featured chart's highlighted bar/point and the callout
+  pill), and amber/clay/blue stay reserved for their readiness/caution meaning, never as decorative
+  chart colours. No series is conveyed by colour alone: each chart exposes a single accessible text
+  summary (the bars/dots are hidden from the screen reader), the raw readings and the smoothed trend are
+  presented SEPARATELY (docs/09 §9.6), and the layout is a bento grid of deliberately unequal tiles
+  (weight large and featured; adherence a full-width featured bar chart; cardio/protein/strength/lager
+  half tiles; waist full-width) so it does not look templated.
+- The alcohol tile is STRICTLY NEUTRAL (docs/07 §7.4, docs/06 §6.9): units-per-week totals only, no
+  judgement, no limit warning and NO compensatory logic. A view test scans the rendered copy for a
+  forbidden vocabulary to guard the tone.
+- Declared seams (read as-is, not built): (1) the running stage-application loop (roadmap 17's deferred
+  seam) means "strength/cardio" series read whatever the tables hold; the dashboard does not drive it.
+  (2) Distinct cardio activity typing (roadmap 09/15/16 seam) is unchanged — cardio minutes come from
+  `cardio_logs` regardless of type. (3) This is an interactive/visual screen: like the cardio player, the
+  visual result (bento reflow at large Dynamic Type, highlight/callout contrast in both themes) benefits
+  from a SIMULATOR PASS that the static gates cannot fully close. (4) The weekly review (roadmap 22) will
+  reuse these calculations on its own screen; it is not built here.
 
 ## Known small issues to clean up (not blocking)
 
