@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  dayWindow,
   type DiaryEntry,
   isMealType,
   type MealType,
@@ -120,6 +121,79 @@ describe('summariseDiary', () => {
       { ...entry('s', 'lunch', scaled.calories, scaled.proteinG) },
     ]);
     expect(summary.totals).toEqual({ calories: 200, proteinG: 10 });
+  });
+});
+
+describe('dayWindow', () => {
+  it('frames a raw UTC day when the offset is zero (unchanged behaviour)', () => {
+    expect(dayWindow('2026-07-13', 0)).toEqual({
+      endIso: '2026-07-13T23:59:59.999Z',
+      startIso: '2026-07-13T00:00:00.000Z',
+    });
+  });
+
+  it('shifts the window to the local calendar day in BST (UTC+1)', () => {
+    // getTimezoneOffset() is -60 in BST. Local midnight 2026-07-13 is 2026-07-12T23:00Z,
+    // and the last local millisecond is 2026-07-13T22:59:59.999Z.
+    expect(dayWindow('2026-07-13', -60)).toEqual({
+      endIso: '2026-07-13T22:59:59.999Z',
+      startIso: '2026-07-12T23:00:00.000Z',
+    });
+  });
+
+  it('includes a 00:30 local log in that local day, not the previous one', () => {
+    // 00:30 local on 2026-07-13 in UTC+1 is 2026-07-12T23:30:00Z — the one-hour gap the
+    // old raw-UTC window silently dropped.
+    const loggedAt = '2026-07-12T23:30:00.000Z';
+    const today = dayWindow('2026-07-13', -60);
+    const yesterday = dayWindow('2026-07-12', -60);
+    expect(loggedAt >= today.startIso && loggedAt <= today.endIso).toBe(true);
+    expect(loggedAt >= yesterday.startIso && loggedAt <= yesterday.endIso).toBe(
+      false,
+    );
+  });
+
+  it('includes a 23:30 local log in that day and excludes it from the next', () => {
+    // 23:30 local on 2026-07-13 in UTC+1 is 2026-07-13T22:30:00Z.
+    const loggedAt = '2026-07-13T22:30:00.000Z';
+    const today = dayWindow('2026-07-13', -60);
+    const tomorrow = dayWindow('2026-07-14', -60);
+    expect(loggedAt >= today.startIso && loggedAt <= today.endIso).toBe(true);
+    expect(loggedAt >= tomorrow.startIso && loggedAt <= tomorrow.endIso).toBe(
+      false,
+    );
+  });
+
+  it('assigns a log at exactly local midnight to the new day', () => {
+    // Local midnight 2026-07-13 in UTC+1 is the inclusive start of that day's window.
+    const localMidnight = '2026-07-12T23:00:00.000Z';
+    const today = dayWindow('2026-07-13', -60);
+    const yesterday = dayWindow('2026-07-12', -60);
+    expect(today.startIso).toBe(localMidnight);
+    expect(
+      localMidnight >= today.startIso && localMidnight <= today.endIso,
+    ).toBe(true);
+    expect(
+      localMidnight >= yesterday.startIso && localMidnight <= yesterday.endIso,
+    ).toBe(false);
+  });
+
+  it('adjacent local days abut with no gap and no overlap', () => {
+    // The end of one day is one millisecond before the start of the next: nothing falls
+    // between them (the property that eliminates the silent-loss gap).
+    const day = dayWindow('2026-07-13', -60);
+    const next = dayWindow('2026-07-14', -60);
+    expect(new Date(next.startIso).getTime()).toBe(
+      new Date(day.endIso).getTime() + 1,
+    );
+  });
+
+  it('handles a west-of-UTC offset (EST, UTC-5)', () => {
+    // getTimezoneOffset() is +300 in EST. Local midnight 2026-07-13 is 2026-07-13T05:00Z.
+    expect(dayWindow('2026-07-13', 300)).toEqual({
+      endIso: '2026-07-14T04:59:59.999Z',
+      startIso: '2026-07-13T05:00:00.000Z',
+    });
   });
 });
 

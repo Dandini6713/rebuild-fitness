@@ -42,6 +42,12 @@ export function useToday(
   // greeting stay stable across re-renders.
   const [reference] = useState(now);
   const todayIso = useMemo(() => toIsoDate(reference), [reference]);
+  // The device's UTC offset for the reference day, so the intake window is the user's
+  // LOCAL calendar day (matching todayIso) rather than a raw UTC day (see dayWindow).
+  const offsetMinutes = useMemo(
+    () => reference.getTimezoneOffset(),
+    [reference],
+  );
   const greeting = useMemo(
     () => deriveGreeting(reference.getHours()),
     [reference],
@@ -63,7 +69,7 @@ export function useToday(
       return;
     }
     let active = true;
-    void repository.load(todayIso).then((result) => {
+    void repository.load(todayIso, offsetMinutes).then((result) => {
       if (active) {
         setFetched({ key: requestKey, result });
       }
@@ -71,7 +77,7 @@ export function useToday(
     return () => {
       active = false;
     };
-  }, [repository, requestKey, todayIso, userId]);
+  }, [offsetMinutes, repository, requestKey, todayIso, userId]);
 
   const reload = useCallback(() => {
     // Returning to Today (or an explicit reload) clears a prior block: the user may

@@ -20,6 +20,7 @@ import {
   type WeeklyAdherence,
 } from '@/domain/training/todaySession';
 import { currentWeekRange } from '@/domain/training/planSchedule';
+import { dayWindow } from '@/domain/nutrition/nutritionDiary';
 import {
   computeNutrientProgress,
   type NutrientProgress,
@@ -241,7 +242,10 @@ function buildNutrition(
 
 export function createTodayRepository(backend: TodayBackend) {
   return {
-    async load(todayIso: string): Promise<TodayResult> {
+    // `offsetMinutes` (Date.getTimezoneOffset() convention) frames the intake window as
+    // the user's LOCAL calendar day, matching todayIso, so a log made just after local
+    // midnight in a non-UTC zone is summed into today, not lost to a UTC-day gap.
+    async load(todayIso: string, offsetMinutes = 0): Promise<TodayResult> {
       const { end, start } = currentWeekRange(todayIso);
 
       const sessionResult = await backend.fetchWeekSessions(start, end);
@@ -327,10 +331,8 @@ export function createTodayRepository(backend: TodayBackend) {
       // calorie and protein progress against the target. Calories are integers and sum
       // exactly; protein is rounded to two decimals to avoid floating-point drift. An
       // empty day sums to zero intake, which still yields honest 0-of-target progress.
-      const nutritionResult = await backend.fetchDayNutrition(
-        `${todayIso}T00:00:00.000Z`,
-        `${todayIso}T23:59:59.999Z`,
-      );
+      const { endIso, startIso } = dayWindow(todayIso, offsetMinutes);
+      const nutritionResult = await backend.fetchDayNutrition(startIso, endIso);
       if (nutritionResult.error) {
         return { message: READ_ERROR, status: 'error' };
       }

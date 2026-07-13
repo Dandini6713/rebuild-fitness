@@ -19,6 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  dayWindow,
   type DiaryEntry,
   type DiarySummary,
   isMealType,
@@ -249,18 +250,6 @@ function looksOffline(error: { message?: string } | null): boolean {
     message.includes('offline') ||
     message.includes('timeout')
   );
-}
-
-// A UTC day window [start, end] for a plain YYYY-MM-DD date. Nutrition intake is read
-// per calendar day; a full timezone story is a noted seam (single-user MVP).
-export function dayWindow(dayIso: string): {
-  startIso: string;
-  endIso: string;
-} {
-  return {
-    endIso: `${dayIso}T23:59:59.999Z`,
-    startIso: `${dayIso}T00:00:00.000Z`,
-  };
 }
 
 // ---- Supabase adapter ------------------------------------------------------
@@ -553,8 +542,14 @@ export function createNutritionRepository(backend: NutritionBackend) {
     },
 
     // Diary -----------------------------------------------------------------
-    async loadDiary(dayIso: string): Promise<LoadDiaryResult> {
-      const { endIso, startIso } = dayWindow(dayIso);
+    // `offsetMinutes` (Date.getTimezoneOffset() convention) frames the day window as the
+    // user's LOCAL calendar day rather than a raw UTC day, so a log made just after local
+    // midnight in a non-UTC zone is counted in the right day, not lost (see dayWindow).
+    async loadDiary(
+      dayIso: string,
+      offsetMinutes = 0,
+    ): Promise<LoadDiaryResult> {
+      const { endIso, startIso } = dayWindow(dayIso, offsetMinutes);
       const logsResult = await backend.fetchDayLogs(startIso, endIso);
       if (logsResult.error) {
         return { message: READ_ERROR, status: 'error' };

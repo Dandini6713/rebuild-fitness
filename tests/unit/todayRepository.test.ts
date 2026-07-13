@@ -271,6 +271,107 @@ describe('today repository — load', () => {
     });
   });
 
+  // A fixed set of nutrition logs the backend "filters" by the intake window the
+  // repository passes, exactly as the DB would with .gte/.lte on logged_at. Proves the
+  // Today intake sum uses the user's local calendar day, not a raw UTC day.
+  const nutritionWindowBackend = (
+    logs: { logged_at: string; calories: number; protein_g: number }[],
+  ) =>
+    backend({
+      fetchCurrentTargets: async () => ({
+        data: [
+          { calories: 2100, effective_from: '2026-07-01', protein_g: 145 },
+        ],
+        error: null,
+      }),
+      fetchDayNutrition: async (startIso: string, endIso: string) => ({
+        data: logs
+          .filter((log) => log.logged_at >= startIso && log.logged_at <= endIso)
+          .map((log) => ({ calories: log.calories, protein_g: log.protein_g })),
+        error: null,
+      }),
+    });
+
+  it('sums a just-after-local-midnight log into today in BST (UTC+1)', async () => {
+    // 00:30 local on 2026-07-15 in UTC+1 is 2026-07-14T23:30:00Z — lost by the old
+    // raw-UTC window. It must count towards today's intake, not yesterday's.
+    const repo = createTodayRepository(
+      nutritionWindowBackend([
+        { calories: 600, logged_at: '2026-07-14T23:30:00.000Z', protein_g: 40 },
+      ]),
+    );
+
+    const result = await repo.load(TODAY, -60);
+    if (result.status !== 'ready') throw new Error('expected ready');
+    if (result.data.nutrition.kind !== 'target') {
+      throw new Error('expected a target');
+    }
+    expect(result.data.nutrition.caloriesProgress?.consumed).toBe(600);
+  });
+
+  it('excludes a late-evening local log from the next day in BST', async () => {
+    // 23:30 local on 2026-07-15 in UTC+1 is 2026-07-15T22:30:00Z: it belongs to the
+    // 15th and must not leak into the 16th's intake.
+    const repo = createTodayRepository(
+      nutritionWindowBackend([
+        { calories: 700, logged_at: '2026-07-15T22:30:00.000Z', protein_g: 50 },
+      ]),
+    );
+
+    const onThe15th = await repo.load('2026-07-15', -60);
+    if (onThe15th.status !== 'ready') throw new Error('expected ready');
+    if (onThe15th.data.nutrition.kind !== 'target') {
+      throw new Error('expected a target');
+    }
+    expect(onThe15th.data.nutrition.caloriesProgress?.consumed).toBe(700);
+
+    const onThe16th = await repo.load('2026-07-16', -60);
+    if (onThe16th.status !== 'ready') throw new Error('expected ready');
+    if (onThe16th.data.nutrition.kind !== 'target') {
+      throw new Error('expected a target');
+    }
+    expect(onThe16th.data.nutrition.caloriesProgress?.consumed).toBe(0);
+  });
+
+  it('assigns a log at exactly local midnight to the new day in BST', async () => {
+    // Local midnight 2026-07-15 in UTC+1 is 2026-07-14T23:00:00Z: it belongs to the 15th.
+    const repo = createTodayRepository(
+      nutritionWindowBackend([
+        { calories: 250, logged_at: '2026-07-14T23:00:00.000Z', protein_g: 15 },
+      ]),
+    );
+
+    const result = await repo.load(TODAY, -60);
+    if (result.status !== 'ready') throw new Error('expected ready');
+    if (result.data.nutrition.kind !== 'target') {
+      throw new Error('expected a target');
+    }
+    expect(result.data.nutrition.caloriesProgress?.consumed).toBe(250);
+  });
+
+  it('is unchanged at a zero UTC offset', async () => {
+    // With offset 0 (the default) the intake window is the raw UTC day, as before.
+    const repo = createTodayRepository(
+      nutritionWindowBackend([
+        { calories: 800, logged_at: '2026-07-15T23:30:00.000Z', protein_g: 55 },
+      ]),
+    );
+
+    const onThe15th = await repo.load('2026-07-15', 0);
+    if (onThe15th.status !== 'ready') throw new Error('expected ready');
+    if (onThe15th.data.nutrition.kind !== 'target') {
+      throw new Error('expected a target');
+    }
+    expect(onThe15th.data.nutrition.caloriesProgress?.consumed).toBe(800);
+
+    const onThe16th = await repo.load('2026-07-16', 0);
+    if (onThe16th.status !== 'ready') throw new Error('expected ready');
+    if (onThe16th.data.nutrition.kind !== 'target') {
+      throw new Error('expected a target');
+    }
+    expect(onThe16th.data.nutrition.caloriesProgress?.consumed).toBe(0);
+  });
+
   it('surfaces an error when the nutrition read fails', async () => {
     const repo = createTodayRepository(
       backend({

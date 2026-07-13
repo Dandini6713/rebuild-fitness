@@ -84,6 +84,40 @@ export type DiarySummary = {
   totals: DiaryTotals;
 };
 
+// A day window [startIso, endIso] of UTC instants covering the user's LOCAL calendar
+// day `dayIso` (YYYY-MM-DD). nutrition_logs.logged_at is stored in UTC, but `dayIso` is
+// derived from the device's LOCAL date (toIsoDate), so a raw `${dayIso}T00:00:00Z` window
+// disagrees with the user's day by their UTC offset. In BST (UTC+1) that left a one-hour
+// gap: a log at 00:30 local time is after the previous UTC day's end and before the
+// current UTC day's start, so it fell into NEITHER day — silent data loss. This computes
+// the UTC instants of local-midnight-to-local-midnight instead, so adjacent days abut
+// exactly with no gap and no overlap, and the window is exactly the day the user is
+// living in (AGENTS.md: display in the user's time zone).
+//
+// `offsetMinutes` follows Date.getTimezoneOffset(): the minutes to ADD to local time to
+// reach UTC (e.g. -60 for BST, UTC+1; +300 for EST, UTC-5). It is passed in, never read
+// from ambient state, so the window stays pure and testable at any offset. A fuller
+// multi-timezone/travel story (a user changing zones mid-history) remains a noted seam;
+// same-zone local-day correctness is handled.
+export function dayWindow(
+  dayIso: string,
+  offsetMinutes: number,
+): { startIso: string; endIso: string } {
+  const parts = dayIso.split('-');
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const localMidnightUtcMs =
+    Date.UTC(year, month - 1, day) + offsetMinutes * 60_000;
+  return {
+    // The last millisecond before the next local midnight, so `.lte(endIso)` includes
+    // the whole local day without overlapping the following one.
+    endIso: new Date(localMidnightUtcMs + dayMs - 1).toISOString(),
+    startIso: new Date(localMidnightUtcMs).toISOString(),
+  };
+}
+
 // Group the day's entries by meal (in canonical order) and total them. Only meals that
 // have at least one entry appear. Calories sum as exact integers; protein is rounded to
 // two decimals after summing. An empty day yields no meals and zero totals.

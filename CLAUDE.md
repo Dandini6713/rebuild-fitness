@@ -1005,8 +1005,22 @@ How nutrition logging works and what it deliberately left for later:
   (integer calories exact, protein rounded) and passes real intake into `buildNutrition`, so Today
   shows calorie/protein PROGRESS against the target, not just the target. An empty day is honest
   zero-of-target progress (not null, not fabricated). The Today repository test was updated to assert
-  real totals. The day window is a UTC `[start, end]` for the calendar date (a full timezone story is
-  a noted single-user-MVP seam).
+  real totals. The day window is the user's LOCAL calendar day, not a raw UTC day. `dayIso` /
+  `todayIso` come from `toIsoDate` (the device's LOCAL date), so framing the read as a raw
+  `${dayIso}T00:00:00Z..T23:59:59Z` window disagreed with the user's day by their UTC offset: in BST
+  (UTC+1) a `nutrition_log` made between local midnight and 01:00 fell into a one-hour gap — after the
+  previous UTC day's end and before the current UTC day's start — and appeared in NEITHER day's diary
+  or totals (silent data loss that would also have corrupted roadmap 22's per-day intake and its
+  ten-of-fourteen day-count). The pure `dayWindow(dayIso, offsetMinutes)`
+  (`domain/nutrition/nutritionDiary.ts`, `offsetMinutes` in the `Date.getTimezoneOffset()` convention)
+  now returns the UTC instants of local-midnight-to-local-midnight for that date, so adjacent days
+  abut exactly with no gap and no overlap. Both nutrition-log day reads use it — the diary
+  (`loadDiary(dayIso, offsetMinutes)`) AND the Today intake sum (`load(todayIso, offsetMinutes)`) — and
+  the hooks (`useNutritionDiary`, `useToday`) pass `reference.getTimezoneOffset()`. Boundary tests
+  cover it directly (`dayWindow`) and end-to-end through both reads: a 00:30-local and an exactly-local-
+  midnight log land in the right local day, a 23:30-local log stays out of the next day, and the
+  UTC-offset-zero case is unchanged. Same-zone local-day correctness is now handled; a fuller
+  multi-timezone/travel story (a user changing zones mid-history) remains a noted seam.
 - The §6.7 / §6.8 engine SEAMS (declared, not built). The calorie-adjustment engine (§6.7, roadmap 22)
   will READ the effective target (`resolveCurrentNutritionTarget`) and the day's/period's
   `nutrition_logs`, together with the roadmap-18 weight trend and logging adherence, to PROPOSE target

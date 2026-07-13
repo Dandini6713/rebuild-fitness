@@ -289,6 +289,120 @@ describe('nutrition repository — diary', () => {
     expect(result.data.proteinProgress?.remaining).toBe(80);
   });
 
+  // A fixed set of logs the backend "filters" by the window the repository passes,
+  // exactly as the DB would with .gte/.lte on logged_at. This proves the day window
+  // end to end, not just the pure helper.
+  const dayLogsBackend = (
+    logs: {
+      id: string;
+      logged_at: string;
+      calories: number;
+      protein_g: number;
+    }[],
+  ) =>
+    backend({
+      fetchDayLogs: async (startIso: string, endIso: string) => ({
+        data: logs
+          .filter((log) => log.logged_at >= startIso && log.logged_at <= endIso)
+          .map((log) => ({
+            calories: log.calories,
+            description: log.id,
+            food_id: null,
+            id: log.id,
+            logged_at: log.logged_at,
+            meal_type: 'breakfast',
+            protein_g: log.protein_g,
+          })),
+        error: null,
+      }),
+    });
+
+  it('counts a just-after-local-midnight log in the local day in BST (UTC+1)', async () => {
+    // 00:30 local on 2026-07-13 in UTC+1 is 2026-07-12T23:30:00Z — the log the old
+    // raw-UTC window silently dropped. It must appear in the 13th, not the 12th.
+    const logs = [
+      {
+        calories: 300,
+        id: 'early',
+        logged_at: '2026-07-12T23:30:00.000Z',
+        protein_g: 20,
+      },
+    ];
+    const repo = createNutritionRepository(dayLogsBackend(logs));
+
+    const onThe13th = await repo.loadDiary('2026-07-13', -60);
+    if (onThe13th.status !== 'ready') throw new Error('expected ready');
+    expect(onThe13th.data.summary.totals.calories).toBe(300);
+
+    const onThe12th = await repo.loadDiary('2026-07-12', -60);
+    if (onThe12th.status !== 'ready') throw new Error('expected ready');
+    expect(onThe12th.data.summary.totals.calories).toBe(0);
+  });
+
+  it('counts a late-evening local log in the day, not the next, in BST', async () => {
+    // 23:30 local on 2026-07-13 in UTC+1 is 2026-07-13T22:30:00Z.
+    const logs = [
+      {
+        calories: 500,
+        id: 'late',
+        logged_at: '2026-07-13T22:30:00.000Z',
+        protein_g: 30,
+      },
+    ];
+    const repo = createNutritionRepository(dayLogsBackend(logs));
+
+    const onThe13th = await repo.loadDiary('2026-07-13', -60);
+    if (onThe13th.status !== 'ready') throw new Error('expected ready');
+    expect(onThe13th.data.summary.totals.calories).toBe(500);
+
+    const onThe14th = await repo.loadDiary('2026-07-14', -60);
+    if (onThe14th.status !== 'ready') throw new Error('expected ready');
+    expect(onThe14th.data.summary.totals.calories).toBe(0);
+  });
+
+  it('assigns a log at exactly local midnight to the new day in BST', async () => {
+    // Local midnight 2026-07-13 in UTC+1 is 2026-07-12T23:00:00Z: it belongs to the 13th.
+    const logs = [
+      {
+        calories: 250,
+        id: 'midnight',
+        logged_at: '2026-07-12T23:00:00.000Z',
+        protein_g: 15,
+      },
+    ];
+    const repo = createNutritionRepository(dayLogsBackend(logs));
+
+    const onThe13th = await repo.loadDiary('2026-07-13', -60);
+    if (onThe13th.status !== 'ready') throw new Error('expected ready');
+    expect(onThe13th.data.summary.totals.calories).toBe(250);
+
+    const onThe12th = await repo.loadDiary('2026-07-12', -60);
+    if (onThe12th.status !== 'ready') throw new Error('expected ready');
+    expect(onThe12th.data.summary.totals.calories).toBe(0);
+  });
+
+  it('is unchanged at a zero UTC offset', async () => {
+    // With offset 0 the window is the raw UTC day: a 23:30Z log counts on that UTC date
+    // and not the next, exactly as before the fix.
+    const logs = [
+      {
+        calories: 400,
+        id: 'utc',
+        logged_at: '2026-07-13T23:30:00.000Z',
+        protein_g: 25,
+      },
+    ];
+    const repo = createNutritionRepository(dayLogsBackend(logs));
+
+    const onThe13th = await repo.loadDiary('2026-07-13', 0);
+    if (onThe13th.status !== 'ready') throw new Error('expected ready');
+    expect(onThe13th.data.summary.totals.calories).toBe(400);
+
+    const onThe14th = await repo.loadDiary('2026-07-14', 0);
+    if (onThe14th.status !== 'ready') throw new Error('expected ready');
+    expect(onThe14th.data.summary.totals.calories).toBe(0);
+  });
+
   it('leaves progress null when no target is set, still summing totals', async () => {
     const repo = createNutritionRepository(
       backend({

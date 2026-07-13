@@ -33,6 +33,12 @@ export function useNutritionDiary(
 
   const [reference] = useState(now);
   const dayIso = useMemo(() => toIsoDate(reference), [reference]);
+  // The device's UTC offset for the reference day, so the diary window is the user's
+  // LOCAL calendar day (matching dayIso) rather than a raw UTC day (see dayWindow).
+  const offsetMinutes = useMemo(
+    () => reference.getTimezoneOffset(),
+    [reference],
+  );
 
   const [reloadCount, setReloadCount] = useState(0);
   const requestKey = useMemo(
@@ -49,7 +55,7 @@ export function useNutritionDiary(
       return;
     }
     let active = true;
-    void repository.loadDiary(dayIso).then((result) => {
+    void repository.loadDiary(dayIso, offsetMinutes).then((result) => {
       if (active) {
         setFetched({ key: requestKey, result });
       }
@@ -57,7 +63,7 @@ export function useNutritionDiary(
     return () => {
       active = false;
     };
-  }, [dayIso, repository, requestKey, userId]);
+  }, [dayIso, offsetMinutes, repository, requestKey, userId]);
 
   const reload = useCallback(() => setReloadCount((count) => count + 1), []);
 
