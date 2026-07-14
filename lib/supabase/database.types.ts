@@ -1370,6 +1370,7 @@ export type Database = {
         }
         Returns: Json
       }
+      delete_account: { Args: never; Returns: undefined }
       seed_cardio_stages: { Args: never; Returns: number }
       seed_private_plan: {
         Args: { p_reset?: boolean; p_start_date: string }

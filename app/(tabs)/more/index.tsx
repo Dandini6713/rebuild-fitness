@@ -53,6 +53,11 @@ export default function SettingsScreen() {
           label="Notifications"
           onPress={() => router.push('/more/notifications')}
         />
+        <SecondaryButton
+          accessibilityHint="Export or permanently delete your data."
+          label="Your data"
+          onPress={() => router.push('/more/account')}
+        />
         <SecondaryButton disabled label="Privacy and help" />
         {signOutError ? (
           <AppText accessibilityLiveRegion="assertive">{signOutError}</AppText>

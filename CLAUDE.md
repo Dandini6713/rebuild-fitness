@@ -327,10 +327,25 @@ abv_percent / 1000` (568 ml at 5% ≈ 2.84), rounded to two decimals; calories a
     notifications dependency: `expo-notifications@~57.0.3` (SDK-57 compatible via `expo install`). The
     device adapter is the fourth device-verifiable surface (after cardio, dashboard, review) and needs a
     simulator pass. See the notes below.
+- Roadmap 25, data export and account deletion. The S-053 screen (More → "Your data") now offers a
+  full account EXPORT and a permanent account DELETION (docs/03 S-053, docs/01 FR-082, docs/04 §4.2,
+  docs/05 §5.11, docs/07 §7.7/§7.8). EXPORT is CLIENT-ASSEMBLED (RLS already scopes every table to the
+  owner): a pure, versioned builder (`domain/account/accountExport.ts`, `ACCOUNT_EXPORT_VERSION`
+  `rebuild-account-export/v1`) shapes the fetched rows of ALL 27 user-owned tables into one
+  self-describing JSON object, always fully keyed (an empty account is a valid empty export), shared via
+  the platform Share API. DELETION goes through a security-DEFINER RPC (`delete_account`, migration
+  `20260725090000`) that deletes the caller's `auth.users` row, cascading all 27 owned tables in one
+  transaction — the single, complete deletion primitive. A FRESH re-authentication (re-enter password via
+  `authService.signInWithPassword`) is required immediately before the destructive confirm, and any
+  failure deletes nothing. `features/account/` mirrors the other features (narrow backend + Supabase
+  adapter + composed repository, `useAccountExport`/`useAccountDeletion` hooks, pure `AccountDataView`).
+  A pgTAP INTEGRATION test seeds a user across all 27 tables, deletes, and asserts every table empty for
+  them while a second user is untouched (the cascade-completeness assertion). See the notes below on the
+  progress-photos-unbuilt gap, the storage-clear step and the export-rate-limit seam.
 
 Not started:
 
-- Roadmap 25 onwards. The invalidating-
+- Roadmap 26 onwards. The invalidating-
   event flag (illness/travel) still has no capture UI and is a declared seam (an optional engine input
   defaulting to "no event"; the calorie engine and the generation caller already honour it once a
   toggle exists — the natural home is a future settings surface). For running progression, what
@@ -351,8 +366,9 @@ effective-dated target resolver `nutritionTargets.ts` and the daily-diary totals
 `nutritionDiary.ts`, the calorie-adjustment eligibility engine `calorieAdjustment.ts` and the protein
 weekly report `proteinReport.ts`) and `domain/alcohol/alcoholUnits.ts` (UK units + the weekly summary),
 plus `domain/progress/` (the pure chart scale/axis logic `chartScale.ts`, the weekly-bucket windowing
-`progressWindows.ts` and the seven per-series assemblers `progressSeries.ts`) and `domain/review/`
-(the weekly-review assembly `weeklyReview.ts`), are the real
+`progressWindows.ts` and the seven per-series assemblers `progressSeries.ts`), `domain/review/`
+(the weekly-review assembly `weeklyReview.ts`) and `domain/account/accountExport.ts` (the pure,
+versioned account-export builder), are the real
 modules so far (pure plan-date/label helpers, the weekly scheduling
 rules, the catalogue grouping and guide-section shaping, the strength progression rules, the Achilles
 readiness classifier, the amber activity-substitution options, the cardio interval scheduler + cue
@@ -1492,6 +1508,79 @@ How local notifications work and what they deliberately left for later:
   a fuller notification-settings surface). The React hook holds the adapter/repository/clock in refs
   synced by an effect and derives `loadState` during render, so a caller passing a fresh adapter each
   render can neither re-arm the load effect nor loop it (a lesson from an initial infinite-loop bug).
+
+## Export & deletion boundaries carried out of Roadmap 25
+
+How export and deletion work and what they deliberately left for later:
+
+- EXPORT is CLIENT-ASSEMBLED, DELETION is a TRUSTED SERVER ACTION — the two halves of S-053 differ in
+  kind (docs/04 §4.2). Export needs no elevated privilege: row-level security already scopes every table
+  to `auth.uid() = user_id`, so the client legitimately reads all of its OWN rows. Deletion is
+  privileged (it must delete the `auth.users` row), so it goes through a security-DEFINER RPC — NOT an
+  Edge Function (none exist in this repo; the definer RPC is consistent with `start_scheduled_session`
+  and `submit_readiness_checkin`).
+- The versioned export STRUCTURE. `domain/account/accountExport.ts` (`ACCOUNT_EXPORT_VERSION`
+  `rebuild-account-export/v1`) is the single documented source of the export shape: a top-level object
+  with `exportVersion`, `exportedAt` (passed in — the builder is pure, no clock), `userId`, a
+  `description`, the `tables` list, `data` (one key per table), and a `storage` section. `EXPORTED_TABLES`
+  is the canonical list of the 27 user-owned tables (verified against the live schema — everything that
+  references `auth.users(id) on delete cascade`; the shared `exercises` catalogue is excluded as it is
+  reference data, not the user's own). COMPLETENESS is a property of the shape: `buildAccountExport`
+  ALWAYS emits every table key (empty array when absent), so an empty account is a valid fully-keyed
+  export and a user-owned table added to the app without adding it here fails the "every table present"
+  unit test. The builder is a FAITHFUL passthrough — it never invents, merges or filters rows — so
+  because the repository fetches only owner-scoped rows (RLS-filtered; the two shared-or-owned
+  `workout_templates`/`workout_template_exercises` are additionally `.eq('user_id')`), no cross-user row
+  can appear. The prepared JSON is shared via React Native's built-in Share API (a DECLARED minimal
+  mechanism — a file-based export via expo-file-system/expo-sharing is the sanctioned next step, the same
+  no-casual-dependency stance as roadmap 21; the DATA correctness is what the tests pin down).
+- The DELETION primitive is the 27-table `auth.users` cascade. `delete_account()` (migration
+  `20260725090000`, `security definer`, `search_path = ''`, granted to `authenticated`, anon/public
+  revoked) captures `auth.uid()` and runs a single `delete from auth.users where id = auth.uid()`. Every
+  user-owned table declares `user_id ... references auth.users(id) on delete cascade`, so that one delete
+  removes ALL of the caller's rows across ALL 27 tables in one transaction — including `audit_events`
+  (docs/05 §5.11 requires personal-data audit rows to be deleted too). There is no per-table delete list
+  to keep in sync, so no table can be forgotten and left holding orphaned personal data. Only the
+  caller's own row is ever named. No audit event is written post-deletion (the audit rows are themselves
+  deleted); a pre-deletion audit was not added (not required, and deletion must not block on it).
+- STORAGE OBJECTS and the progress-photos gap. docs/05 §5.11 / §7.9 require removing storage objects on
+  deletion. PROGRESS PHOTOGRAPHS (docs/05 §5.8) were SPECCED but NEVER BUILT — there is no
+  `progress_photos` table and no storage bucket after 25 roadmaps, and this roadmap deliberately did NOT
+  build the photo-capture feature (an unscheduled item). Deletion still handles storage CORRECTLY for
+  when it lands: `accountRepository.clearOwnStorage` lists and removes the caller's own objects under
+  their prefix in the `progress-photos` bucket over the AUTHENTICATED Storage API, BEFORE the RPC (after
+  which the session is gone and storage is unreachable). This is done client-side, NOT in SQL, because
+  deleting a `storage.objects` row does not remove the underlying file — only the Storage API does; a
+  SQL-only cascade would orphan the actual files. It is a correct NO-OP today (no bucket) and becomes
+  real the moment a private progress-photos bucket lands, with no change to `delete_account`. Storage
+  removal is BEST-EFFORT — a missing bucket or a storage hiccup never blocks the DB deletion, so an
+  account is never left half-deleted. The progress-photos CAPTURE feature is a declared roadmap gap.
+- The RECENT-AUTH gate (docs/07 §7.8). The client flow requires a FRESH re-authentication immediately
+  before the destructive confirm: the user re-enters their password, routed through
+  `authService.signInWithPassword` via `AuthProvider.signIn`, in the SAME flow. `useAccountDeletion` only
+  calls `deleteAccount` after that sign-in succeeds; a failed re-auth aborts and deletes nothing (proven
+  by a hook test). The flow is multi-step and cancellable up to the final confirm — no accidental
+  single-tap deletion. The RPC itself has no session freshness to check, so the gate lives in the flow.
+- `features/account/` mirrors the other features: narrow `AccountBackend` + Supabase adapter
+  (`accountRepository.ts`), a composed repository (`exportData` reads every table then shapes with the
+  pure builder; `deleteAccount` clears storage then calls the RPC), `useAccountExport` /
+  `useAccountDeletion` hooks, and a pure `AccountDataView` (S-053, all §3.3 states, British English, calm
+  but unambiguous destructive copy conveying danger by icon+text). Wired into More → "Your data".
+- TESTS. The pure builder (full shape, versioning, empty account → valid empty export, every owned table
+  present, faithful passthrough / no cross-user mixing); the repository (reads all 27 owner-scoped,
+  offline/error honesty, storage-cleared-before-RPC ordering, deletion offline/error); the re-auth gate
+  at the hook level (no delete without a fresh sign-in); the view states + confirm + re-auth. The
+  load-bearing one is the pgTAP INTEGRATION test (`supabase/tests/delete_account.test.sql`): a user is
+  seeded with a row in EVERY one of the 27 tables, `delete_account()` is called as that user, and every
+  table is asserted empty for them afterwards (grand-total plus the deepest FK-chain leaves individually)
+  while a second user's rows are entirely untouched — the cascade-completeness + isolation assertion,
+  because a table that failed to cascade would leave orphaned personal data. Owner isolation and anon
+  denial are covered. `database.types.ts` was regenerated for the new RPC.
+- Declared seams: (1) the progress-photos CAPTURE feature is unbuilt (deletion/export handle storage
+  correctly for when it exists). (2) EXPORT RATE-LIMITING (docs/07 §7.8) — there is no server function to
+  enforce it on yet; when one is added it belongs at the trusted boundary (a definer guard on the RPC, or
+  an Edge Function / gateway rule), flagged in the migration and here. (3) No Edge Functions were
+  introduced — the definer RPC is used. (4) The share mechanism is minimal (Share API, not a saved file).
 
 ## Known small issues to clean up (not blocking)
 
