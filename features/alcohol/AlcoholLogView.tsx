@@ -22,6 +22,7 @@ import {
   SectionHeader,
   StatusBadge,
 } from '@/components/common';
+import { FormErrorSummary } from '@/components/forms';
 import { computeUnits } from '@/domain/alcohol/alcoholUnits';
 import { useAppTheme } from '@/theme/useAppTheme';
 
@@ -291,6 +292,17 @@ function DrinkForm({
           {`Estimated ${unitsFormat.format(previewUnits)} units (approximate)`}
         </AppText>
       ) : null}
+
+      <FormErrorSummary
+        errors={[
+          errors.drinkName,
+          errors.drinkType,
+          errors.volumeMl,
+          errors.abvPercent,
+          errors.calories,
+          errors.occasionNote,
+        ]}
+      />
 
       <PrimaryButton
         label="Save drink"

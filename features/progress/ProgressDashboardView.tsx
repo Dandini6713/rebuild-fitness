@@ -64,7 +64,7 @@ function PeriodStrip({
   weeks: DashboardWindowWeeks;
   onSelectWeeks: (weeks: DashboardWindowWeeks) => void;
 }) {
-  const { colours, radii, spacing } = useAppTheme();
+  const { colours, radii, spacing, touchTargets } = useAppTheme();
   const options: { label: string; value: DashboardWindowWeeks }[] = [
     { label: '4 weeks', value: 4 },
     { label: '12 weeks', value: 12 },
@@ -94,7 +94,7 @@ function PeriodStrip({
               backgroundColor: selected ? colours.accent : 'transparent',
               borderRadius: radii.pill,
               flex: 1,
-              minHeight: 40,
+              minHeight: touchTargets.minimum,
               justifyContent: 'center',
             }}
           >

@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { TextInput, View } from 'react-native';
 
 import { AppText, PrimaryButton, SectionHeader } from '@/components/common';
+import { FormErrorSummary } from '@/components/forms';
 import { computeUnits } from '@/domain/alcohol/alcoholUnits';
 import { useAppTheme } from '@/theme/useAppTheme';
 
@@ -169,6 +170,16 @@ export function DrinkFavouriteFormView({
           {`Estimated ${unitsFormat.format(previewUnits)} units (approximate)`}
         </AppText>
       ) : null}
+
+      <FormErrorSummary
+        errors={[
+          errors.drinkName,
+          errors.drinkType,
+          errors.volumeMl,
+          errors.abvPercent,
+          errors.calories,
+        ]}
+      />
 
       <PrimaryButton
         label="Save drink"

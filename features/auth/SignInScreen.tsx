@@ -7,7 +7,7 @@ import {
   PrimaryButton,
   StatusBadge,
 } from '@/components/common';
-import { TextField } from '@/components/forms';
+import { FormErrorSummary, TextField } from '@/components/forms';
 import { useAppTheme } from '@/theme/useAppTheme';
 
 import { useAuth } from './AuthProvider';
@@ -81,6 +81,7 @@ export function SignInScreen() {
           textContentType="password"
           value={password}
         />
+        <FormErrorSummary errors={[fieldErrors.email, fieldErrors.password]} />
         {message ? (
           <AppText
             accessibilityLiveRegion="assertive"

@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { TextInput, View } from 'react-native';
 
 import { AppText, PrimaryButton, SectionHeader } from '@/components/common';
+import { FormErrorSummary } from '@/components/forms';
 import { useAppTheme } from '@/theme/useAppTheme';
 
 import {
@@ -329,6 +330,19 @@ export function ReadinessFormView({
           ) : null}
         </>
       ) : null}
+
+      <FormErrorSummary
+        errors={[
+          answerErrors.painScore,
+          answerErrors.stiffnessChange,
+          answerErrors.swellingLevel,
+          answerErrors.walkingStatus,
+          answerErrors.suddenChange,
+          answerErrors.confidenceScore,
+          extraErrors.sessionEffort,
+          extraErrors.notes,
+        ]}
+      />
 
       <PrimaryButton
         label="See my result"

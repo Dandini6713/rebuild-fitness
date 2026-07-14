@@ -13,6 +13,7 @@ import { useMemo, useState } from 'react';
 import { TextInput, View } from 'react-native';
 
 import { AppText, PrimaryButton, SectionHeader } from '@/components/common';
+import { FormErrorSummary } from '@/components/forms';
 import { useAppTheme } from '@/theme/useAppTheme';
 
 import {
@@ -286,6 +287,10 @@ export function MeasurementFormView({
           </AppText>
         ) : null}
       </View>
+
+      <FormErrorSummary
+        errors={[errors.value, errors.measuredAt, errors.conditionsNote]}
+      />
 
       <PrimaryButton label="Save" loading={submitting} onPress={handleSubmit} />
     </View>

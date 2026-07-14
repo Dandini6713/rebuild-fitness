@@ -342,10 +342,27 @@ abv_percent / 1000` (568 ml at 5% ≈ 2.84), rounded to two decimals; calories a
   A pgTAP INTEGRATION test seeds a user across all 27 tables, deletes, and asserts every table empty for
   them while a second user is untouched (the cascade-completeness assertion). See the notes below on the
   progress-photos-unbuilt gap, the storage-clear step and the export-rate-limit seam.
+- Roadmap 26, accessibility & resilience. An AUDIT-AND-FIX pass across the existing app against the
+  docs/09 §9.8 accessibility bar and the docs/03 §3.3 / docs/10 §10.6 resilience bar — NOT new
+  features, and NO schema change (accessibility/resilience are client-side; none was needed and none
+  was added). The app was already in strong shape (~50 files carried a11y props), so this closed GAPS
+  against a defined bar. The load-bearing new piece is the shared, accessible form error SUMMARY
+  (`components/forms/FormErrorSummary.tsx`) that satisfies §9.8 item 6 ("errors next to the field AND
+  in an accessible summary") — an assertive `accessibilityRole="alert"` panel whose label reads every
+  field error in one announcement — wired into every multi-field Zod form (sign-in, measurement,
+  readiness, food, drink, alcohol log, targets). A token darken (`slate500` #697672 → #616d69) fixes
+  the one failing WCAG text pair (light `textTertiary` on `surfaceMuted`, 4.17 → 4.74), proven by a
+  new PURE `tokenContrast.test.ts` that computes the ratio for every semantic pair in BOTH themes.
+  Point fixes: notification toggles now expose `role="switch"` + checked state; the progress period
+  tabs meet the 44pt target; OptionGroup rows carry an explicit label. The named resilience scenario
+  (docs/10 §10.6) is a REAL test (`workoutResilience.test.ts`): an active workout survives
+  backgrounding/lock and a flaky, partial-failure network with no lost sets and no double-writes. R26
+  is CODE-COMPLETE; the on-device VoiceOver + large-type sign-off is a REQUIRED manual step (see the
+  device-test checklist in the boundaries section below). See the notes below.
 
 Not started:
 
-- Roadmap 26 onwards. The invalidating-
+- Roadmap 27 onwards. The invalidating-
   event flag (illness/travel) still has no capture UI and is a declared seam (an optional engine input
   defaulting to "no event"; the calorie engine and the generation caller already honour it once a
   toggle exists — the natural home is a future settings surface). For running progression, what
@@ -1581,6 +1598,106 @@ How export and deletion work and what they deliberately left for later:
   enforce it on yet; when one is added it belongs at the trusted boundary (a definer guard on the RPC, or
   an Edge Function / gateway rule), flagged in the migration and here. (3) No Edge Functions were
   introduced — the definer RPC is used. (4) The share mechanism is minimal (Share API, not a saved file).
+
+## Accessibility & resilience boundaries carried out of Roadmap 26
+
+What the accessibility/resilience pass found and fixed, and the manual step it deliberately leaves open.
+
+- Scope and honest limit. This was an AUDIT-AND-FIX pass across the EXISTING screens, not new
+  features, and there is NO schema change (accessibility/resilience are client-side) — stated, not
+  worked around. Static gates + jest verify PRESENCE (a11y props exist) and COMPUTED contrast; they
+  do NOT verify the LIVED experience — real VoiceOver announcement order, true Dynamic-Type reflow,
+  and actual touch-target hit areas. R26 is CODE-COMPLETE, but device sign-off (the checklist below)
+  is a REQUIRED manual step, not optional polish. The app entered R26 already strong (~50 files with
+  a11y props), so most screens PASSED the audit unchanged; the work was closing specific gaps.
+
+- The audit table (finding — §9.8 item / WCAG — severity — fix):
+  1. Forms had inline field errors but NO accessible SUMMARY (§9.8 item 6 / WCAG 3.3.1) — HIGH,
+     repeating across every Zod form — fixed at the SHARED level with `FormErrorSummary`.
+  2. `textTertiary` on `surfaceMuted` (light) = 4.17:1 (WCAG 1.4.3 needs 4.5) — MED — darkened the
+     `slate500` primitive #697672 → #616d69 (now 4.74:1; improves it on every surface, keeps the
+     dark-theme use, which is `textDisabled` and exempt anyway).
+  3. Notification toggles: `Switch` had a label but no explicit role/state (§9.8 item 1) — MED —
+     added `accessibilityRole="switch"` + `accessibilityState={{ checked }}`.
+  4. Progress period tabs `minHeight: 40` (< 44) (§9.8 item 10 / docs/09 §9.4) — MED — → 44
+     (`touchTargets.minimum`).
+  5. `OptionGroup` rows relied on the child text for their label (§9.8 item 1) — LOW — added an
+     explicit `accessibilityLabel` on the row `Pressable`.
+     Screens the audit CONFIRMED already meet the bar (so no change): the timers/segment state in the
+     cardio & workout players (items 4/5 — segment change is text + StatusBadge + audio cue, never
+     haptic-only or colour-only); the charts (items 1/3 — each chart is one accessible text summary with
+     the decorative bars/dots hidden, and `chartScale.ts` guarantees no misleading axis); the weekly
+     planner reschedule (item 7 — Move/Replace/Skip are BUTTONS in a detail sheet, never drag-only, and
+     the disabled Today stubs are labelled); readiness/status everywhere stays icon + text (never colour
+     alone). The gap-list screens the brief flagged (ReadinessResultView, SignInScreen,
+     RunningProgressionView, MeasurementHistoryView, the tab/route indexes) were re-audited and already
+     carried roles/labels/live regions; SignInScreen additionally gained the error summary.
+
+- The shared error SUMMARY is the load-bearing fix. `FormErrorSummary` (`components/forms/`) takes the
+  same field-error messages the inline fields already show and, when any are present, renders ONE
+  assertive `accessibilityRole="alert"` panel whose container `accessibilityLabel` reads the lead line
+  plus every message in a single announcement (the visible per-line list is hidden from the reader to
+  avoid double-reading). It renders nothing when the form is valid, so it is safe to place
+  unconditionally. Conveys status by icon + text (caution StatusBadge), never colour alone. Wired into
+  every MULTI-field Zod form: sign-in, measurement, readiness, food, drink favourite, alcohol log,
+  nutrition targets. SINGLE-field forms (alcohol limit, the account-deletion re-auth) were left with
+  their one inline `accessibilityLiveRegion` error — a summary of one item would only double-read;
+  this boundary is deliberate.
+
+- Token-contrast results (WCAG 2.1, computed by `tests/unit/tokenContrast.test.ts` for every semantic
+  pair in BOTH themes; text pairs at 4.5:1, the accent-highlight non-text pair at 3:1). After the
+  `slate500` fix, ALL asserted pairs pass. Representative ratios (light / dark): textPrimary on
+  surface 16.76 / 14.33; textSecondary on surface 8.34 / 9.71; textTertiary on surfaceMuted 4.74 /
+  4.56 (the fixed pair); onAccent on accent 7.45 / 8.97; accent on surface 7.45 / 8.07; successText
+  8.26 / 7.17; cautionText 8.21 / 8.05; dangerText 7.55 / 5.91; infoText 7.04 / 5.89; accent on
+  accentSoft (highlight) 5.02 / 7.17. DELIBERATELY NOT asserted: plain container `border` on `surface`
+  (1.55 / 1.81, below the 3:1 for non-text) — these are SUPPLEMENTARY dividers (a field is identified
+  by its fill + label + placeholder, a card by its raised surface, a chip by its filled selected
+  state), which WCAG 1.4.11 exempts. If a control is ever made border-only, add a `borderStrong` token
+  meeting 3:1 and test it. The failing-pair reasoning is documented at the foot of the test.
+
+- The backgrounding / poor-connectivity workout test (the ONE resilience behaviour the brief names
+  explicitly, docs/10 §10.6). `tests/unit/workoutResilience.test.ts` drives the real local-first +
+  dedupe code paths (the in-memory stores implement the same interface as the SQLite device stores)
+  and proves, as a scenario rather than a claim: (1) two sets logged while offline/locked are held in
+  the durable store and SURVIVE a simulated app-kill + relaunch (a fresh repository over the SAME
+  store still sees them); (2) a set is NEVER lost when the network write fails (local-first, told
+  "saved, not synced", not an error); (3) under a flaky, partial-failure network (flush 2, one drops,
+  one writes through, straggler flushes on reconnect) exactly 4 unique rows land server-side; (4) a
+  replayed reconnect and a re-queued-already-synced set NEVER double-write (client_operation_id + the
+  DB unique constraint, a benign 23505). A companion cardio case proves the resume clock survives a
+  relaunch and the one `cardio_logs` summary writes exactly once after an offline completion + reconnect.
+  The §3.3 state matrix was re-audited across the data-driven screens and found broadly honest — offline
+  is handled at the route level (`useNetworkStatus` + `OfflineState`), read screens carry
+  loading/empty/error, and write forms return `status: 'offline'` rather than faking success — so no
+  state refactor was warranted; the named scenario is where the real, previously-missing coverage was.
+
+- DEVICE-TEST CHECKLIST (the REQUIRED manual pass R26 cannot close in CI — discharge the accumulated
+  device-pass debt here). On a physical iPhone + a small and a large simulator, in light AND dark:
+  - VoiceOver, per docs/10 §10.6, on: onboarding, Today, the readiness check, and workout logging —
+    confirm logical focus order, that every value/control is announced, and that the new form error
+    SUMMARY is announced on a failed submit (sign-in, measurement, readiness, food, drink, targets).
+  - Cardio interval player (R16 debt): confirm each segment change is conveyed AUDIBLY (cue tone) and
+    VISUALLY (segment label + countdown + StatusBadge), never by haptic alone, with the screen locked;
+    confirm the 3-2-1 countdown and completion chime fire.
+  - Notifications (R24 debt): grant permission and confirm each enabled reminder fires at its local
+    time; deny and confirm a graceful no-op; toggle a type off and confirm its notifications cancel;
+    confirm each toggle announces as a switch with its on/off state.
+  - Progress dashboard bento + weekly review sections (R21/R23 debt): at the LARGEST Dynamic Type,
+    confirm tiles/sections reflow without truncation or overlap and the highlight/callout keep contrast
+    in both themes; confirm the 4/12-week period tabs and every chart-tile tap are ≥ 44pt hit areas.
+  - Large-type sweep on all forms: confirm labels, chips, +/− controls and buttons wrap rather than
+    clip, and the error summary stays readable.
+
+- The three tracked POST-MVP follow-ups (explicitly OUT of R26 scope — noted, not fixed here): (1) the
+  roadmap-17 running stage-application loop (applying an accepted stage advance to the forward
+  schedule); (2) wiring readiness history into the weekly-review safety section; (3) the
+  `delete_account` hosted-role production check (an ops checklist item). Also still open from earlier
+  roadmaps and unchanged by R26: the invalidating-event capture UI (R22/settings seam), distinct
+  cardio activity typing on a substitution (R15/16 seam), a hard gate forcing the pre-session readiness
+  check (R24 prompts but does not force), a file-based export (R25 Share-API seam), and the
+  progress-photos CAPTURE feature (R25 gap). No NEW feature, Apple Health (R27) or AI layers (R28/29)
+  were touched.
 
 ## Known small issues to clean up (not blocking)
 

@@ -21,6 +21,7 @@ import {
   SectionHeader,
   StatusBadge,
 } from '@/components/common';
+import { FormErrorSummary } from '@/components/forms';
 import { DEFAULT_PROTEIN_TARGET_G } from '@/domain/nutrition/nutritionTargets';
 import { useAppTheme } from '@/theme/useAppTheme';
 
@@ -286,6 +287,10 @@ function SetTargetForm({
           </AppText>
         ) : null}
       </View>
+
+      <FormErrorSummary
+        errors={[errors.calories, errors.proteinG, errors.effectiveFrom]}
+      />
 
       <PrimaryButton
         label="Save target"

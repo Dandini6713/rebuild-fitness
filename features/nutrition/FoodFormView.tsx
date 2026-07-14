@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import { TextInput, View } from 'react-native';
 
 import { AppText, PrimaryButton, SectionHeader } from '@/components/common';
+import { FormErrorSummary } from '@/components/forms';
 import { useAppTheme } from '@/theme/useAppTheme';
 
 import {
@@ -178,6 +179,17 @@ export function FoodFormView({ onSubmit, submitting }: FoodFormViewProps) {
       >
         {favourite ? '★ Favourite' : '☆ Mark as favourite'}
       </AppText>
+
+      <FormErrorSummary
+        errors={[
+          errors.name,
+          errors.servingDescription,
+          errors.calories,
+          errors.proteinG,
+          errors.carbohydrateG,
+          errors.fatG,
+        ]}
+      />
 
       <PrimaryButton
         label="Save food"

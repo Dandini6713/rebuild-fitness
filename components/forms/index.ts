@@ -1,3 +1,4 @@
+export { FormErrorSummary } from './FormErrorSummary';
 export {
   CheckboxField,
   MultiOptionGroup,

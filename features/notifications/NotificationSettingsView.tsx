@@ -158,6 +158,8 @@ export function NotificationSettingsView({
             </View>
             <Switch
               accessibilityLabel={row.label}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: preferences[row.type] }}
               disabled={saveState.status === 'submitting'}
               onValueChange={(value) => onToggle(row.type, value)}
               thumbColor={colours.surface}

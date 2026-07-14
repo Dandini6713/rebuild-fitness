@@ -13,7 +13,9 @@ const colourPrimitives = {
   slate900: '#1b2927',
   slate800: '#293835',
   slate700: '#42514e',
-  slate500: '#697672',
+  // Darkened from #697672 so textTertiary (light) clears WCAG 4.5:1 on surfaceMuted
+  // (paper100), not only on surface/background. See tests/unit/tokenContrast.test.ts.
+  slate500: '#616d69',
   slate400: '#8d9894',
   slate200: '#cad1ce',
   slate100: '#e2e7e4',

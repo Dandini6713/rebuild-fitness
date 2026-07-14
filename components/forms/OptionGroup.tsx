@@ -18,6 +18,7 @@ function OptionRow({ checked, label, multiple, onPress }: OptionRowProps) {
 
   return (
     <Pressable
+      accessibilityLabel={label}
       accessibilityRole={multiple ? 'checkbox' : 'radio'}
       accessibilityState={{ checked, selected: checked }}
       onPress={onPress}
